@@ -36,6 +36,16 @@ def test_cli_overrides_env(tmp_path: Path) -> None:
     assert settings.mysql_host == "from-cli"
 
 
+def test_env_overrides_toml(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[mysql]\nhost = "toml-host"\n', encoding="utf-8")
+    settings = load_settings(
+        env={"SPIDERHUB_MYSQL_HOST": "env-host"},
+        config_path=path,
+    )
+    assert settings.mysql_host == "env-host"
+
+
 def test_toml_file_values(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text(

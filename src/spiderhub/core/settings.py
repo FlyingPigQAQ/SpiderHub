@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
@@ -42,7 +44,11 @@ def load_settings(
     config_path: Path | None = None,
     cli_overrides: Mapping[str, object] | None = None,
 ) -> Settings:
-    environ = env if env is not None else os.environ
+    if env is None:
+        load_dotenv()
+        environ = os.environ
+    else:
+        environ = env
     path = config_path if config_path is not None else Path("config.local.toml")
     raw = _load_toml(path)
     mysql = raw.get("mysql", {}) if isinstance(raw.get("mysql"), dict) else {}
