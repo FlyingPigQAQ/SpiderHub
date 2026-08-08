@@ -29,15 +29,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("No spiders registered yet.")
         return 0
 
-    if args.command == "run":
-        mode = " (dry-run)" if args.dry_run else ""
-        print(
-            f"spiderhub run {args.name}{mode}: not implemented",
-            file=sys.stderr,
-        )
-        return 2
-
-    parser.error(f"unknown command: {args.command}")
+    mode = " (dry-run)" if args.dry_run else ""
+    print(
+        f"spiderhub run {args.name}{mode}: not implemented",
+        file=sys.stderr,
+    )
     return 2
 
 
