@@ -21,16 +21,17 @@ SpiderHub 是基于 Python 的爬虫中枢（Crawler Hub）：统一管理多站
 |------|------|
 | 语言 | Python 3.11+ |
 | 包管理 | `uv` + `pyproject.toml`（`src/` 布局） |
-| 轻量 HTTP | `httpx`（默认路径；不要与 `aiohttp` 混用两套客户端栈） |
-| 浏览器抓取 | `Playwright`（Chromium）；用于 JS 渲染与挑战页 |
-| TLS/JA3 兼容客户端 | `curl_cffi`（可选路径；模拟浏览器 TLS/HTTP2 指纹） |
-| 反爬检测与降级 | 自研 `challenge` 检测 + fetcher 自动升级（httpx → curl_cffi → Playwright） |
+| 轻量 HTTP | `httpx`（已引入；L1 默认路径；不要与 `aiohttp` 混用两套客户端栈） |
+| 浏览器抓取 | `Playwright`（Chromium）；用于 JS 渲染与挑战页（**未实现**，L3 预留） |
+| TLS/JA3 兼容客户端 | `curl_cffi`（可选路径；模拟浏览器 TLS/HTTP2 指纹；**未实现**，L2 预留） |
+| 反爬检测与降级 | 自研 `challenge` 检测 stub + fetcher 自动升级接口（当前仅 L1 httpx；L2/L3 未实现） |
 | 代理 | 可插拔 proxy pool（住宅/ISP 优先于数据中心，按站点策略配置） |
-| 解析 | `selectolax` / `parsel` / `lxml`（按页面复杂度选用，同一 Spider 内保持一致） |
-| 校验 | `pydantic` v2 |
+| 解析 | `selectolax`（已引入；MissAV 切片使用）；`parsel` / `lxml` 可按需引入 |
+| 校验 | `pydantic` v2（已引入） |
+| 落库 | `PyMySQL`（已引入；MySQL upsert pipeline） |
 | 日志 | 标准库 `logging` + 结构化字段；禁止 `print` 作为正式日志 |
 | 质量工具 | `ruff`（lint + format）、`mypy`、`pytest`、`pytest-asyncio` |
-| 配置 | 环境变量 + `.env.example`；密钥不入库 |
+| 配置 | 环境变量 + `.env.example` / `config.example.toml`；密钥不入库 |
 
 不要默认引入 Scrapy，除非任务明确要求接入 Scrapy 生态。优先保持 Hub 内核轻量、可组合。
 
@@ -114,10 +115,14 @@ uv run ruff format .
 uv run mypy src
 uv run pytest
 
-# 运行（示例，以实际 CLI 为准）
+# 运行
 uv run spiderhub list
 uv run spiderhub run <spider_name>
 uv run spiderhub run <spider_name> --dry-run
+uv run spiderhub run missav_actress --start-url 'https://missav.ws/cn/actresses/...'
+
+# 建表（应用不自动 CREATE TABLE）
+mysql -u ... < scripts/sql/missav_schema.sql
 ```
 
 改动涉及依赖、命令或目录约定时，同一 PR 更新本文件与 `README.md`。

@@ -7,9 +7,7 @@ from spiderhub.core.spider import ParseItem, Spider
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.spiders.missav.parse import parse_actress_list, parse_work_detail
 
-DEFAULT_START = (
-    "https://missav.ws/cn/actresses/%E5%8C%97%E9%87%8E%E6%9C%AA%E5%A5%88"
-)
+DEFAULT_START = "https://missav.ws/cn/actresses/%E5%8C%97%E9%87%8E%E6%9C%AA%E5%A5%88"
 
 
 @register_spider

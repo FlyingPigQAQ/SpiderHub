@@ -125,9 +125,7 @@ def parse_work_detail(html: str, page_url: str) -> Work | None:
             if slug:
                 actress_slugs.append(slug)
     tags = [
-        n.text(strip=True)
-        for n in tree.css("[data-testid=tag]")
-        if n.text(strip=True)
+        n.text(strip=True) for n in tree.css("[data-testid=tag]") if n.text(strip=True)
     ]
     return Work(
         code=code,

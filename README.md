@@ -25,4 +25,12 @@ uv run spiderhub run <spider_name>
 uv run spiderhub run <spider_name> --dry-run
 ```
 
-当前 `run` 为占位实现，尚未执行真实抓取。
+## MissAV 女优爬虫（垂直切片）
+
+1. 复制配置：`cp .env.example .env`（或 `cp config.example.toml config.local.toml`）并填写 MySQL
+2. 建表：`mysql -u ... < scripts/sql/missav_schema.sql`
+3. 试跑：`uv run spiderhub run missav_actress --dry-run`
+4. 写库：`uv run spiderhub run missav_actress`
+5. 其它女优：`uv run spiderhub run missav_actress --start-url 'https://missav.ws/cn/actresses/...'`
+
+说明：仅元数据；需合规授权与遵守 robots。

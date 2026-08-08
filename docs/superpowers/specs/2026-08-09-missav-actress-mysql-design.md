@@ -1,7 +1,7 @@
 # MissAV 女优页爬虫 + MySQL 落库设计
 
 日期：2026-08-09  
-状态：待用户审阅  
+状态：已落地  
 范围：垂直切片——最小可跑 Hub 内核 + `missav_actress` Spider + MySQL upsert pipeline
 
 ## 背景

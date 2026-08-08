@@ -15,6 +15,10 @@ class Spider(ABC):
     fetch_mode: str = "auto"
     obey_robots: bool = True
 
+    def __init__(self, *, start_url: str | None = None) -> None:
+        """Optional seed URL; subclasses read ``start_url`` if supported."""
+        _ = start_url
+
     @abstractmethod
     def start_urls(self) -> list[str]:
         raise NotImplementedError
