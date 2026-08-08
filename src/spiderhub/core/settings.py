@@ -46,9 +46,7 @@ def load_settings(
 ) -> Settings:
     if env is None:
         load_dotenv()
-        environ = os.environ
-    else:
-        environ = env
+    environ: Mapping[str, str] = env if env is not None else os.environ
     path = config_path if config_path is not None else Path("config.local.toml")
     raw = _load_toml(path)
     mysql = raw.get("mysql", {}) if isinstance(raw.get("mysql"), dict) else {}
