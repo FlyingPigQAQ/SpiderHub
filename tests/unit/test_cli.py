@@ -5,24 +5,15 @@ import pytest
 from spiderhub.cli import main
 
 
-def test_list_exits_zero_and_reports_empty(capsys: pytest.CaptureFixture[str]) -> None:
+def test_list_shows_missav(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["list"])
-    captured = capsys.readouterr()
+    out = capsys.readouterr().out
     assert code == 0
-    assert "No spiders registered" in captured.out
+    assert "missav_actress" in out
 
 
-def test_run_reports_not_implemented(capsys: pytest.CaptureFixture[str]) -> None:
-    code = main(["run", "demo"])
-    captured = capsys.readouterr()
+def test_run_unknown_spider(capsys: pytest.CaptureFixture[str]) -> None:
+    code = main(["run", "no-such-spider"])
+    err = capsys.readouterr().err
     assert code == 2
-    assert "not implemented" in captured.err.lower()
-    assert "demo" in captured.err
-
-
-def test_run_dry_run_mentions_flag(capsys: pytest.CaptureFixture[str]) -> None:
-    code = main(["run", "demo", "--dry-run"])
-    captured = capsys.readouterr()
-    assert code == 2
-    assert "not implemented" in captured.err.lower()
-    assert "dry-run" in captured.err.lower()
+    assert "unknown" in err.lower() or "no-such-spider" in err
