@@ -1,0 +1,10 @@
+[mysql]
+host = "127.0.0.1"
+port = 3306
+user = ""
+password = ""
+database = "spiderhub"
+
+[crawl]
+obey_robots = true
+request_delay_seconds = 1.0
