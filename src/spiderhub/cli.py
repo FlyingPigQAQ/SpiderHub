@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from spiderhub.core.registry import discover_builtin_spiders, get_spider, list_spiders
 from spiderhub.core.runner import run_spider
 from spiderhub.core.settings import load_settings
-from spiderhub.downloaders.httpx_fetcher import HttpxFetcher
+from spiderhub.downloaders.auto_fetcher import AutoFetcher
 from spiderhub.pipelines.mysql import MySQLPipeline
 from spiderhub.pipelines.null import NullPipeline
 
@@ -50,7 +50,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         pipeline = MySQLPipeline(settings)
 
     try:
-        async with HttpxFetcher(settings) as fetcher:
+        async with AutoFetcher(settings) as fetcher:
             result = await run_spider(
                 spider,
                 fetcher=fetcher,

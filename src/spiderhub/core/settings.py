@@ -21,6 +21,12 @@ class Settings:
     request_delay_seconds: float = 1.0
     http_timeout_seconds: float = 30.0
     http_max_retries: int = 3
+    allow_fetcher_upgrade: bool = True
+    allow_browser: bool = True
+    impersonate_target: str = "chrome"
+    browser_challenge_wait_seconds: float = 15.0
+    browser_headless: bool = True
+    browser_storage_state: str = ".spiderhub/storage_state.json"
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -62,6 +68,16 @@ def load_settings(
         "request_delay_seconds": float(crawl.get("request_delay_seconds", 1.0)),
         "http_timeout_seconds": 30.0,
         "http_max_retries": 3,
+        "allow_fetcher_upgrade": _as_bool(crawl.get("allow_fetcher_upgrade"), True),
+        "allow_browser": _as_bool(crawl.get("allow_browser"), True),
+        "impersonate_target": str(crawl.get("impersonate_target", "chrome")),
+        "browser_challenge_wait_seconds": float(
+            crawl.get("browser_challenge_wait_seconds", 15.0)
+        ),
+        "browser_headless": _as_bool(crawl.get("browser_headless"), True),
+        "browser_storage_state": str(
+            crawl.get("browser_storage_state", ".spiderhub/storage_state.json")
+        ),
     }
 
     env_map = {
@@ -72,14 +88,29 @@ def load_settings(
         "mysql_database": "SPIDERHUB_MYSQL_DATABASE",
         "obey_robots": "SPIDERHUB_OBEY_ROBOTS",
         "request_delay_seconds": "SPIDERHUB_REQUEST_DELAY_SECONDS",
+        "allow_fetcher_upgrade": "SPIDERHUB_ALLOW_FETCHER_UPGRADE",
+        "allow_browser": "SPIDERHUB_ALLOW_BROWSER",
+        "impersonate_target": "SPIDERHUB_IMPERSONATE_TARGET",
+        "browser_challenge_wait_seconds": "SPIDERHUB_BROWSER_CHALLENGE_WAIT_SECONDS",
+        "browser_headless": "SPIDERHUB_BROWSER_HEADLESS",
+        "browser_storage_state": "SPIDERHUB_BROWSER_STORAGE_STATE",
     }
     for field, key in env_map.items():
         if key in environ and environ[key] != "":
             if field in {"mysql_port", "http_max_retries"}:
                 data[field] = int(environ[key])
-            elif field in {"request_delay_seconds", "http_timeout_seconds"}:
+            elif field in {
+                "request_delay_seconds",
+                "http_timeout_seconds",
+                "browser_challenge_wait_seconds",
+            }:
                 data[field] = float(environ[key])
-            elif field == "obey_robots":
+            elif field in {
+                "obey_robots",
+                "allow_fetcher_upgrade",
+                "allow_browser",
+                "browser_headless",
+            }:
                 data[field] = _as_bool(environ[key], True)
             else:
                 data[field] = environ[key]

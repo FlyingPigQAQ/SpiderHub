@@ -661,7 +661,9 @@ class HttpxFetcher:
             transport=self._transport,
             timeout=self._settings.http_timeout_seconds,
             follow_redirects=True,
-            headers={"User-Agent": "SpiderHub/0.1 (+https://github.com/local/SpiderHub)"},
+            headers={
+                "User-Agent": "SpiderHub/0.1 (+https://github.com/local/SpiderHub)"
+            },
         )
         return self
 
@@ -683,7 +685,9 @@ class HttpxFetcher:
                 response = await self._client.get(url)
             except httpx.HTTPError as exc:
                 last_exc = exc
-                logger.warning("fetch error url=%s attempt=%s err=%s", url, attempt, exc)
+                logger.warning(
+                    "fetch error url=%s attempt=%s err=%s", url, attempt, exc
+                )
                 continue
             headers = {k: v for k, v in response.headers.items()}
             reason = detect_challenge(
@@ -693,7 +697,9 @@ class HttpxFetcher:
                 headers=headers,
             )
             if reason:
-                raise ChallengeDetectedError(str(response.url), response.status_code, reason)
+                raise ChallengeDetectedError(
+                    str(response.url), response.status_code, reason
+                )
             if 200 <= response.status_code < 300:
                 return FetchedResponse(
                     url=str(response.url),
@@ -952,8 +958,12 @@ async def test_runner_follows_url_and_items() -> None:
         return httpx.Response(200, text=body, request=request)
 
     settings = Settings(request_delay_seconds=0.0, http_max_retries=1)
-    async with HttpxFetcher(settings, transport=httpx.MockTransport(handler)) as fetcher:
-        result = await run_spider(_ListSpider(), fetcher=fetcher, pipeline=NullPipeline())
+    async with HttpxFetcher(
+        settings, transport=httpx.MockTransport(handler)
+    ) as fetcher:
+        result = await run_spider(
+            _ListSpider(), fetcher=fetcher, pipeline=NullPipeline()
+        )
     assert result.items_ok >= 1
     assert result.urls_failed == 0
 ```
@@ -1566,7 +1576,9 @@ def _slug_from_actress_url(page_url: str) -> str:
 def parse_actress_list(html: str, page_url: str) -> ActressListPage:
     tree = HTMLParser(html)
     name_node = tree.css_first("[data-testid=actress-name]") or tree.css_first("h1")
-    name = (name_node.text(strip=True) if name_node else "") or _slug_from_actress_url(page_url)
+    name = (name_node.text(strip=True) if name_node else "") or _slug_from_actress_url(
+        page_url
+    )
     cover_node = tree.css_first("[data-testid=actress-cover]")
     cover = cover_node.attributes.get("src") if cover_node else None
     bio_node = tree.css_first("[data-testid=actress-bio]")
@@ -1584,8 +1596,14 @@ def parse_actress_list(html: str, page_url: str) -> ActressListPage:
         if href:
             detail_urls.append(urljoin(page_url, href))
     next_node = tree.css_first("[data-testid=next-page]")
-    next_page_url = urljoin(page_url, next_node.attributes["href"]) if next_node and next_node.attributes.get("href") else None
-    return ActressListPage(actress=actress, detail_urls=detail_urls, next_page_url=next_page_url)
+    next_page_url = (
+        urljoin(page_url, next_node.attributes["href"])
+        if next_node and next_node.attributes.get("href")
+        else None
+    )
+    return ActressListPage(
+        actress=actress, detail_urls=detail_urls, next_page_url=next_page_url
+    )
 ```
 
 - [ ] **Step 4: Run tests + Commit**
@@ -1762,7 +1780,9 @@ def parse_work_detail(html: str, page_url: str) -> Work | None:
             slug = unquote(urlparse(href).path.rstrip("/").split("/")[-1])
             if slug:
                 actress_slugs.append(slug)
-    tags = [n.text(strip=True) for n in tree.css("[data-testid=tag]") if n.text(strip=True)]
+    tags = [
+        n.text(strip=True) for n in tree.css("[data-testid=tag]") if n.text(strip=True)
+    ]
     return Work(
         code=code,
         title=title,
@@ -1851,12 +1871,18 @@ async def test_spider_registered_and_dry_run_crawl() -> None:
         if "/actresses/" in url:
             return httpx.Response(200, text=list_html, request=request)
         if url.endswith("/robots.txt"):
-            return httpx.Response(200, text="User-agent: *\nAllow: /\n", request=request)
+            return httpx.Response(
+                200, text="User-agent: *\nAllow: /\n", request=request
+            )
         return httpx.Response(200, text=detail_html, request=request)
 
-    settings = Settings(request_delay_seconds=0.0, http_max_retries=1, obey_robots=False)
+    settings = Settings(
+        request_delay_seconds=0.0, http_max_retries=1, obey_robots=False
+    )
     spider = spider_cls(start_url=DEFAULT)
-    async with HttpxFetcher(settings, transport=httpx.MockTransport(handler)) as fetcher:
+    async with HttpxFetcher(
+        settings, transport=httpx.MockTransport(handler)
+    ) as fetcher:
         result = await run_spider(spider, fetcher=fetcher, pipeline=NullPipeline())
     assert result.items_ok >= 1
     assert result.urls_failed == 0
@@ -1880,9 +1906,7 @@ from spiderhub.core.spider import ParseItem, Spider
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.spiders.missav.parse import parse_actress_list, parse_work_detail
 
-DEFAULT_START = (
-    "https://missav.ws/cn/actresses/%E5%8C%97%E9%87%8E%E6%9C%AA%E5%A5%88"
-)
+DEFAULT_START = "https://missav.ws/cn/actresses/%E5%8C%97%E9%87%8E%E6%9C%AA%E5%A5%88"
 
 
 @register_spider

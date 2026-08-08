@@ -31,3 +31,12 @@ def test_200_with_incidental_challenge_marker_is_not_flagged() -> None:
     )
     reason = detect_challenge(url="https://missav.ws/x", status_code=200, text=html)
     assert reason is None
+
+
+def test_200_chinese_cloudflare_wait_page_is_flagged() -> None:
+    html = (
+        "<html><head><title>请稍候…</title></head>"
+        "<body><h1>missav.ws</h1></body></html>"
+    )
+    reason = detect_challenge(url="https://missav.ws/x", status_code=200, text=html)
+    assert reason is not None

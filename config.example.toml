@@ -8,3 +8,9 @@ database = "spiderhub"
 [crawl]
 obey_robots = true
 request_delay_seconds = 1.0
+allow_fetcher_upgrade = true
+allow_browser = true
+impersonate_target = "chrome"
+browser_challenge_wait_seconds = 15.0
+browser_headless = true
+browser_storage_state = ".spiderhub/storage_state.json"

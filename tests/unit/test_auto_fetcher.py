@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from spiderhub.challenges.detect import ChallengeDetectedError
+from spiderhub.core.settings import Settings
+from spiderhub.downloaders.auto_fetcher import AutoFetcher
+from spiderhub.downloaders.base import FetchedResponse
+from spiderhub.downloaders.curl_cffi_fetcher import CurlCffiFetcher
+from spiderhub.downloaders.playwright_fetcher import PlaywrightFetcher
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_upgrades_l1_to_l2() -> None:
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        return SimpleNamespace(
+            url=url,
+            status_code=200,
+            text="<html>upgraded-l2</html>",
+            headers={},
+        )
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=False,
+    )
+    l2 = CurlCffiFetcher(settings, get=l2_get)
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=l2,
+    ) as fetcher:
+        first = await fetcher.fetch("https://missav.ws/cn/a")
+        second = await fetcher.fetch("https://missav.ws/cn/b")
+    assert "upgraded-l2" in first.text
+    assert "upgraded-l2" in second.text
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_upgrades_l2_to_l3() -> None:
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        return SimpleNamespace(
+            url=url,
+            status_code=403,
+            text="<title>Just a moment...</title>challenge-platform",
+            headers={},
+        )
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        return url, 200, "<html>upgraded-l3</html>", {}
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=PlaywrightFetcher(settings, fetch_page=l3_page),
+    ) as fetcher:
+        resp = await fetcher.fetch("https://missav.ws/cn/a")
+    assert isinstance(resp, FetchedResponse)
+    assert "upgraded-l3" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_robots_does_not_sticky_upgrade() -> None:
+    calls = {"l1": 0, "l2": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        calls["l1"] += 1
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        calls["l2"] += 1
+        return SimpleNamespace(
+            url=url,
+            status_code=403,
+            text="<title>Just a moment...</title>challenge-platform",
+            headers={},
+        )
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=False,
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+    ) as fetcher:
+        with pytest.raises(ChallengeDetectedError):
+            await fetcher.fetch("https://missav.ws/robots.txt")
+        assert calls["l2"] == 0  # robots must not sticky-upgrade
+        with pytest.raises(ChallengeDetectedError):
+            await fetcher.fetch("https://missav.ws/cn/a")
+    assert calls["l1"] >= 2
+    assert calls["l2"] == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_upgrade_disabled_reraises() -> None:
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=False,
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+    ) as fetcher:
+        with pytest.raises(ChallengeDetectedError):
+            await fetcher.fetch("https://missav.ws/cn/a")

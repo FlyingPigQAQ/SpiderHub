@@ -9,7 +9,7 @@ from urllib.robotparser import RobotFileParser
 from spiderhub.core.settings import Settings
 from spiderhub.core.spider import Spider
 from spiderhub.downloaders.base import SPIDERHUB_USER_AGENT
-from spiderhub.downloaders.httpx_fetcher import HttpxFetcher
+from spiderhub.downloaders.protocol import Fetcher
 from spiderhub.models.items import Actress, Work
 from spiderhub.pipelines.base import Pipeline
 
@@ -34,7 +34,7 @@ def _is_robots_url(url: str) -> bool:
 
 
 async def _robots_allowed(
-    fetcher: HttpxFetcher,
+    fetcher: Fetcher,
     url: str,
     enabled: bool,
     cache: dict[str, RobotFileParser],
@@ -60,7 +60,7 @@ async def _robots_allowed(
 async def run_spider(
     spider: Spider,
     *,
-    fetcher: HttpxFetcher,
+    fetcher: Fetcher,
     pipeline: Pipeline,
     start_urls: list[str] | None = None,
     settings: Settings | None = None,

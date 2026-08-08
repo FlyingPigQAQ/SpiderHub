@@ -13,6 +13,10 @@ _WEAK_MARKERS = (
     "cdn-cgi/challenge",
     "enable javascript and cookies to continue",
     "attention required! | cloudflare",
+    "请稍候",
+    "请启用 javascript",
+    "正在验证您是否是真人",
+    "检查您的浏览器",
 )
 
 # Strong markers: specific enough to trust even on HTTP 200 (some challenge
@@ -21,6 +25,9 @@ _STRONG_MARKERS_200 = (
     "just a moment...",
     "#challenge-running",
     "cf-browser-verification",
+    "请稍候",
+    "正在验证您是否是真人",
+    "检查您的浏览器",
 )
 
 

@@ -31,7 +31,7 @@ def test_run_dry_run_skips_mysql(
 
     monkeypatch.setattr("spiderhub.cli.run_spider", fake_run_spider)
     monkeypatch.setattr(
-        "spiderhub.cli.HttpxFetcher",
+        "spiderhub.cli.AutoFetcher",
         lambda *_args, **_kwargs: _FakeFetcher(),
     )
 
