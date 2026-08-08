@@ -1,0 +1,66 @@
+-- scripts/sql/missav_schema.sql
+CREATE DATABASE IF NOT EXISTS spiderhub
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
+
+USE spiderhub;
+
+CREATE TABLE IF NOT EXISTS actresses (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  slug VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  name_ja VARCHAR(255) NULL,
+  name_en VARCHAR(255) NULL,
+  profile_url VARCHAR(1024) NOT NULL,
+  cover_url VARCHAR(1024) NULL,
+  bio TEXT NULL,
+  source VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_actresses_slug (slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS works (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  code VARCHAR(128) NOT NULL,
+  title VARCHAR(512) NOT NULL,
+  description TEXT NULL,
+  release_date DATE NULL,
+  duration_seconds INT NULL,
+  maker VARCHAR(255) NULL,
+  label VARCHAR(255) NULL,
+  series VARCHAR(255) NULL,
+  cover_url VARCHAR(1024) NULL,
+  detail_url VARCHAR(1024) NOT NULL,
+  source VARCHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_works_code (code),
+  UNIQUE KEY uq_works_detail_url (detail_url)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS tags (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  name VARCHAR(255) NOT NULL,
+  source VARCHAR(64) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_tags_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS work_actresses (
+  work_id BIGINT NOT NULL,
+  actress_id BIGINT NOT NULL,
+  PRIMARY KEY (work_id, actress_id),
+  CONSTRAINT fk_wa_work FOREIGN KEY (work_id) REFERENCES works (id),
+  CONSTRAINT fk_wa_actress FOREIGN KEY (actress_id) REFERENCES actresses (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS work_tags (
+  work_id BIGINT NOT NULL,
+  tag_id BIGINT NOT NULL,
+  PRIMARY KEY (work_id, tag_id),
+  CONSTRAINT fk_wt_work FOREIGN KEY (work_id) REFERENCES works (id),
+  CONSTRAINT fk_wt_tag FOREIGN KEY (tag_id) REFERENCES tags (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
