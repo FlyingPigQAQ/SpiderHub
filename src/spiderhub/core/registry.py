@@ -24,4 +24,4 @@ def list_spiders() -> list[str]:
 
 
 def discover_builtin_spiders() -> None:
-    return None
+    from spiderhub.spiders import missav as _missav  # noqa: F401
