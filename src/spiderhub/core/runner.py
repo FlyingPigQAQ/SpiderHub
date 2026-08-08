@@ -8,13 +8,12 @@ from urllib.robotparser import RobotFileParser
 
 from spiderhub.core.settings import Settings
 from spiderhub.core.spider import Spider
+from spiderhub.downloaders.base import SPIDERHUB_USER_AGENT
 from spiderhub.downloaders.httpx_fetcher import HttpxFetcher
 from spiderhub.models.items import Actress, Work
 from spiderhub.pipelines.base import Pipeline
 
 logger = logging.getLogger(__name__)
-
-_SPIDERHUB_USER_AGENT = "SpiderHub/0.1 (+https://github.com/local/SpiderHub)"
 
 
 @dataclass(slots=True)
@@ -34,19 +33,28 @@ def _is_robots_url(url: str) -> bool:
     return path.endswith("/robots.txt") or path == "/robots.txt"
 
 
-async def _robots_allowed(fetcher: HttpxFetcher, url: str, enabled: bool) -> bool:
+async def _robots_allowed(
+    fetcher: HttpxFetcher,
+    url: str,
+    enabled: bool,
+    cache: dict[str, RobotFileParser],
+) -> bool:
     if not enabled:
         return True
     parsed = urlparse(url)
-    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    try:
-        resp = await fetcher.fetch(robots_url)
-    except Exception:  # noqa: BLE001
-        logger.warning("robots.txt fetch failed; allowing url=%s", url)
-        return True
-    rp = RobotFileParser()
-    rp.parse(resp.text.splitlines())
-    return rp.can_fetch(_SPIDERHUB_USER_AGENT, url)
+    host_key = f"{parsed.scheme}://{parsed.netloc}"
+    rp = cache.get(host_key)
+    if rp is None:
+        robots_url = f"{host_key}/robots.txt"
+        try:
+            resp = await fetcher.fetch(robots_url)
+        except Exception:  # noqa: BLE001
+            logger.warning("robots.txt fetch failed; allowing host=%s", host_key)
+            return True
+        rp = RobotFileParser()
+        rp.parse(resp.text.splitlines())
+        cache[host_key] = rp
+    return rp.can_fetch(SPIDERHUB_USER_AGENT, url)
 
 
 async def run_spider(
@@ -61,6 +69,7 @@ async def run_spider(
     queue: deque[str] = deque(start_urls or spider.start_urls())
     seen: set[str] = set()
     obey_robots = (settings.obey_robots if settings else True) and spider.obey_robots
+    robots_cache: dict[str, RobotFileParser] = {}
     await pipeline.open()
     try:
         while queue:
@@ -72,7 +81,9 @@ async def run_spider(
                 logger.warning("skip disallowed url=%s", url)
                 continue
             if obey_robots and not _is_robots_url(url):
-                if not await _robots_allowed(fetcher, url, enabled=True):
+                if not await _robots_allowed(
+                    fetcher, url, enabled=True, cache=robots_cache
+                ):
                     logger.warning("robots disallowed url=%s", url)
                     continue
             try:
@@ -80,6 +91,14 @@ async def run_spider(
             except Exception as exc:  # noqa: BLE001 — counted failure boundary
                 result.urls_failed += 1
                 logger.warning("url failed url=%s err=%s", url, exc)
+                continue
+            if not _allowed(response.url, spider.allowed_domains):
+                result.urls_failed += 1
+                logger.warning(
+                    "skip disallowed post-redirect url=%s final=%s",
+                    url,
+                    response.url,
+                )
                 continue
             try:
                 async for item in spider.parse(response):

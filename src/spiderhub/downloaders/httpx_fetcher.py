@@ -8,7 +8,7 @@ import httpx
 
 from spiderhub.challenges.detect import ChallengeDetectedError, detect_challenge
 from spiderhub.core.settings import Settings
-from spiderhub.downloaders.base import FetchedResponse
+from spiderhub.downloaders.base import SPIDERHUB_USER_AGENT, FetchedResponse
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,7 @@ class HttpxFetcher:
             transport=self._transport,
             timeout=self._settings.http_timeout_seconds,
             follow_redirects=True,
-            headers={
-                "User-Agent": "SpiderHub/0.1 (+https://github.com/local/SpiderHub)"
-            },
+            headers={"User-Agent": SPIDERHUB_USER_AGENT},
         )
         return self
 

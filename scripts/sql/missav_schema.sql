@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS works (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_works_code (code),
-  UNIQUE KEY uq_works_detail_url (detail_url)
+  KEY idx_works_detail_url (detail_url(255))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tags (

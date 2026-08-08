@@ -21,3 +21,13 @@ def test_normal_page_is_clean() -> None:
         text="<html><title>北野未奈</title><body>ok</body></html>",
     )
     assert reason is None
+
+
+def test_200_with_incidental_challenge_marker_is_not_flagged() -> None:
+    html = (
+        "<html><head><title>北野未奈</title></head>"
+        '<body><script src="https://x.example/cdn-cgi/challenge-platform/h/g/orchestrate/jsch/v1"></script>'
+        "<h1>正常内容</h1></body></html>"
+    )
+    reason = detect_challenge(url="https://missav.ws/x", status_code=200, text=html)
+    assert reason is None

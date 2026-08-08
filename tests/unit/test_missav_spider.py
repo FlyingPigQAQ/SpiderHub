@@ -42,5 +42,6 @@ async def test_spider_registered_and_dry_run_crawl() -> None:
         result = await run_spider(
             spider, fetcher=fetcher, pipeline=NullPipeline(), settings=settings
         )
-    assert result.items_ok >= 1
+    assert result.items_ok == 2  # 1 Actress + 1 Work from actress_list_page2 fixture
+    assert result.items_failed == 0
     assert result.urls_failed == 0

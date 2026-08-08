@@ -163,7 +163,7 @@ uv run spiderhub run missav_actress --start-url 'https://missav.ws/cn/actresses/
 | `duration_seconds` | INT NULL | |
 | `maker` / `label` / `series` | VARCHAR NULL | |
 | `cover_url` | VARCHAR NULL | |
-| `detail_url` | VARCHAR UNIQUE | |
+| `detail_url` | VARCHAR(1024)，非唯一索引（前缀 255） | utf8mb4 下 UNIQUE 会超出 InnoDB 索引键长度限制，upsert 键仍用 `code` |
 | `source` | VARCHAR | `missav` |
 | `created_at` / `updated_at` | DATETIME | |
 

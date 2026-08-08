@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from collections.abc import Sequence
 
@@ -69,7 +70,19 @@ async def _run_async(args: argparse.Namespace) -> int:
     return 0 if result.urls_failed == 0 and result.items_failed == 0 else 1
 
 
+def _configure_logging() -> None:
+    level_name = os.environ.get("SPIDERHUB_LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, None)
+    if not isinstance(level, int):
+        level = logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _configure_logging()
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
