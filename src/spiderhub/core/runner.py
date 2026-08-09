@@ -9,7 +9,6 @@ from urllib.robotparser import RobotFileParser
 from spiderhub.core.settings import Settings
 from spiderhub.core.spider import Spider
 from spiderhub.downloaders.base import SPIDERHUB_USER_AGENT
-from spiderhub.downloaders.browser_challenge import is_closed_target_error
 from spiderhub.downloaders.protocol import Fetcher
 from spiderhub.models.items import Actress, Work
 from spiderhub.pipelines.base import Pipeline
@@ -61,6 +60,25 @@ async def _robots_allowed(
     return rp.can_fetch(SPIDERHUB_USER_AGENT, url)
 
 
+async def _record_failed(
+    pipeline: Pipeline,
+    *,
+    url: str,
+    spider_name: str,
+    error_type: str,
+    error_message: str,
+) -> None:
+    try:
+        await pipeline.record_failed_url(
+            url=url,
+            spider_name=spider_name,
+            error_type=error_type,
+            error_message=error_message[:1024],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("record failed_url failed url=%s err=%s", url, exc)
+
+
 async def run_spider(
     spider: Spider,
     *,
@@ -72,7 +90,6 @@ async def run_spider(
     result = RunResult()
     queue: deque[str] = deque(start_urls or spider.start_urls())
     seen: set[str] = set()
-    browser_closed_requeued: set[str] = set()
     obey_robots = (settings.obey_robots if settings else True) and spider.obey_robots
     robots_cache: dict[str, RobotFileParser] = {}
     await pipeline.open()
@@ -95,20 +112,15 @@ async def run_spider(
             try:
                 response = await fetcher.fetch(url)
             except Exception as exc:  # noqa: BLE001 — counted failure boundary
-                # List pagination is chained; burning a list URL on a dead tab
-                # stops the crawl early. Give browser-closed failures one requeue.
-                if is_closed_target_error(exc) and url not in browser_closed_requeued:
-                    browser_closed_requeued.add(url)
-                    seen.discard(url)
-                    queue.appendleft(url)
-                    logger.warning(
-                        "requeue after browser/page closed url=%s err=%s",
-                        url,
-                        exc,
-                    )
-                    continue
                 result.urls_failed += 1
                 logger.warning("url failed url=%s err=%s", url, exc)
+                await _record_failed(
+                    pipeline,
+                    url=url,
+                    spider_name=spider.name,
+                    error_type="fetch",
+                    error_message=str(exc),
+                )
                 continue
             if response.url != url:
                 logger.info("fetch ok url=%s final=%s", url, response.url)
@@ -120,6 +132,13 @@ async def run_spider(
                     "skip disallowed post-redirect url=%s final=%s",
                     url,
                     response.url,
+                )
+                await _record_failed(
+                    pipeline,
+                    url=url,
+                    spider_name=spider.name,
+                    error_type="redirect",
+                    error_message=f"disallowed redirect final={response.url}",
                 )
                 continue
             try:
@@ -138,6 +157,13 @@ async def run_spider(
             except Exception as exc:  # noqa: BLE001 — parse failure boundary
                 result.urls_failed += 1
                 logger.warning("parse failed url=%s err=%s", url, exc)
+                await _record_failed(
+                    pipeline,
+                    url=url,
+                    spider_name=spider.name,
+                    error_type="parse",
+                    error_message=str(exc),
+                )
     finally:
         await pipeline.close()
     return result

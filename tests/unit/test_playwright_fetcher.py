@@ -4,7 +4,10 @@ import pytest
 
 from spiderhub.challenges.detect import ChallengeDetectedError
 from spiderhub.core.settings import Settings
-from spiderhub.downloaders.browser_challenge import is_closed_target_error
+from spiderhub.downloaders.browser_challenge import (
+    is_closed_target_error,
+    is_recoverable_fetch_error,
+)
 from spiderhub.downloaders.playwright_fetcher import (
     PlaywrightFetcher,
     challenge_wait_cleared,
@@ -88,6 +91,26 @@ def test_is_closed_target_error() -> None:
     assert not is_closed_target_error(RuntimeError("timeout 30000ms exceeded"))
 
 
+def test_is_recoverable_fetch_error() -> None:
+    assert is_recoverable_fetch_error(
+        RuntimeError(
+            "Page.goto: Timeout 30000ms exceeded.\n"
+            'Call log:\n  - navigating to "https://missav.ws/x", '
+            'waiting until "domcontentloaded"'
+        )
+    )
+    assert is_recoverable_fetch_error(
+        RuntimeError("Page.goto: Target page, context or browser has been closed")
+    )
+    assert is_recoverable_fetch_error(
+        RuntimeError("Page.content: Execution context was destroyed")
+    )
+    assert not is_recoverable_fetch_error(RuntimeError("boom"))
+    assert not is_recoverable_fetch_error(
+        ChallengeDetectedError("https://x", 403, "cf")
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "goto_error",
@@ -154,6 +177,104 @@ async def test_playwright_recovers_dead_page_and_retries(goto_error: str) -> Non
     resp = await fetcher.fetch("https://missav.ws/cn/x")
     assert resp.status_code == 200
     assert fetcher._context.pages_created == 1  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_playwright_retries_goto_timeout_then_succeeds() -> None:
+    goto_calls = {"n": 0}
+
+    class _FakePage:
+        url = "https://missav.ws/cn/x"
+
+        def __init__(self) -> None:
+            self.context = self
+
+        async def goto(self, *_args: object, **_kwargs: object) -> object:
+            goto_calls["n"] += 1
+            if goto_calls["n"] < 2:
+                raise RuntimeError("Page.goto: Timeout 30000ms exceeded.")
+
+            class _Resp:
+                status = 200
+
+            return _Resp()
+
+        async def title(self) -> str:
+            return "ok"
+
+        async def cookies(self) -> list[dict[str, str]]:
+            return [{"name": "cf_clearance", "value": "1"}]
+
+        async def content(self) -> str:
+            return "<html><title>ok</title><body>ok</body></html>"
+
+        async def wait_for_load_state(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    class _FakeContext:
+        async def cookies(self) -> list[dict[str, str]]:
+            return []
+
+        async def new_page(self) -> _FakePage:
+            return _FakePage()
+
+        async def storage_state(self, **_kwargs: object) -> None:
+            return None
+
+    settings = Settings(request_delay_seconds=0.0, browser_challenge_wait_seconds=1.0)
+    fetcher = PlaywrightFetcher(settings)
+    fetcher._context = _FakeContext()
+    fetcher._reuse_page = True
+    fetcher._shared_page = _FakePage()
+    fetcher._content_headless = True
+
+    response = await fetcher.fetch("https://missav.ws/cn/x")
+
+    assert response.status_code == 200
+    assert goto_calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_playwright_goto_timeout_exhausted_after_three_attempts() -> None:
+    goto_calls = {"n": 0}
+
+    class _FakePage:
+        url = "https://missav.ws/cn/x"
+
+        def __init__(self) -> None:
+            self.context = self
+
+        async def goto(self, *_args: object, **_kwargs: object) -> object:
+            goto_calls["n"] += 1
+            raise RuntimeError("Page.goto: Timeout 30000ms exceeded.")
+
+        async def close(self) -> None:
+            return None
+
+    class _FakeContext:
+        async def cookies(self) -> list[dict[str, str]]:
+            return []
+
+        async def new_page(self) -> _FakePage:
+            return _FakePage()
+
+        async def storage_state(self, **_kwargs: object) -> None:
+            return None
+
+    settings = Settings(request_delay_seconds=0.0, browser_challenge_wait_seconds=1.0)
+    fetcher = PlaywrightFetcher(settings)
+    fetcher._context = _FakeContext()
+    fetcher._reuse_page = True
+    fetcher._shared_page = _FakePage()
+    fetcher._content_headless = True
+
+    with pytest.raises(RuntimeError, match="Timeout"):
+        await fetcher.fetch("https://missav.ws/cn/x")
+
+    assert goto_calls["n"] == 3
 
 
 @pytest.mark.asyncio

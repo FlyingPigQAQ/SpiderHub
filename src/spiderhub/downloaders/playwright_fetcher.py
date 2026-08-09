@@ -19,6 +19,7 @@ from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.downloaders.browser_challenge import (
     challenge_wait_cleared,
     is_closed_target_error,
+    is_recoverable_fetch_error,
     is_transient_page_error,
 )
 from spiderhub.events import ChallengeNeedsHuman, publish
@@ -36,7 +37,7 @@ __all__ = [
     "is_transient_page_error",
 ]
 
-_FETCH_CLOSED_RETRIES = 3
+_FETCH_RECOVERABLE_RETRIES = 3
 
 
 class PlaywrightFetcher:
@@ -415,13 +416,23 @@ class PlaywrightFetcher:
         if self._fetch_page_override is not None:
             return await self._fetch_page_override(url)
         last_exc: BaseException | None = None
-        for attempt in range(1, _FETCH_CLOSED_RETRIES + 1):
+        for attempt in range(1, _FETCH_RECOVERABLE_RETRIES + 1):
             try:
                 return await self._navigate_once(url)
-            except Exception as exc:  # noqa: BLE001 — recover closed targets
+            except Exception as exc:  # noqa: BLE001 — recover retryable browser errors
                 last_exc = exc
-                if not is_closed_target_error(exc) or attempt >= _FETCH_CLOSED_RETRIES:
+                if (
+                    not is_recoverable_fetch_error(exc)
+                    or attempt >= _FETCH_RECOVERABLE_RETRIES
+                ):
                     raise
+                logger.warning(
+                    "recoverable fetch error; retrying attempt=%s/%s url=%s err=%s",
+                    attempt,
+                    _FETCH_RECOVERABLE_RETRIES,
+                    url,
+                    exc,
+                )
                 await self._recover_browser(url=url, attempt=attempt)
         assert last_exc is not None
         raise last_exc

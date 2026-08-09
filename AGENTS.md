@@ -29,7 +29,7 @@ SpiderHub 是基于 Python 的爬虫中枢（Crawler Hub）：统一管理多站
 | 代理 | 可插拔 proxy pool（住宅/ISP 优先于数据中心，按站点策略配置） |
 | 解析 | `selectolax`（已引入；MissAV 切片使用）；`parsel` / `lxml` 可按需引入 |
 | 校验 | `pydantic` v2（已引入） |
-| 落库 | `PyMySQL`（已引入；MySQL upsert pipeline） |
+| 落库 | `PyMySQL`（已引入；MySQL upsert；含 `failed_urls` 最终失败 URL） |
 | 日志 | 标准库 `logging` + 结构化字段；禁止 `print` 作为正式日志 |
 | 飞书提醒 | 可选飞书 Open API 订阅 `ChallengeNeedsHuman` / `SpiderRunFinished`；默认关闭；密钥不入库；dry-run 不发完成提醒 |
 | 质量工具 | `ruff`（lint + format）、`mypy`、`pytest`、`pytest-asyncio` |
@@ -86,6 +86,7 @@ SpiderHub/
 - **代理策略**：按 `allowed_domains` / Spider 配置绑定代理池；失败时区分「代理差」与「挑战未通过」。
 - **站点策略声明**：Spider 元数据可声明 `fetch_mode`（`http` / `impersonate` / `browser` / `auto`）与是否允许升维。
 - **可关闭**：全局与 per-spider 都能禁用浏览器/外部解锁路径，便于合规与排障。
+- **浏览器可恢复错误**：L3 导航 timeout / closed / transient 最多重试 3 次（复用 `_recover_browser`）；Challenge 类错误不重试。耗尽后由 Runner 写入 `failed_urls`；`--dry-run` 不写。
 
 ### 明确不做 / 不内置
 
