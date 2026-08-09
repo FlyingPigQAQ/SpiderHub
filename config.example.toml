@@ -24,3 +24,11 @@ external_solver_url = "http://127.0.0.1:8191/v1"
 external_solver_skip_browser = false
 external_solver_timeout_ms = 60000
 external_solver_session = "spiderhub"
+
+[notify]
+# 飞书应用提醒（默认关闭；secret 建议只放环境变量）
+# app_id = ""
+# app_secret = ""
+# receive_id_type = "open_id"  # open_id | user_id | chat_id
+# receive_id = ""
+# notify_cooldown_seconds = 600

@@ -10,6 +10,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 BROWSER_ENGINES = frozenset({"playwright", "camoufox", "patchright"})
+FEISHU_RECEIVE_ID_TYPES = frozenset({"open_id", "user_id", "chat_id"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,11 @@ class Settings:
     external_solver_skip_browser: bool = False
     external_solver_timeout_ms: int = 60_000
     external_solver_session: str = "spiderhub"
+    feishu_app_id: str = ""
+    feishu_app_secret: str = ""
+    feishu_receive_id_type: str = ""
+    feishu_receive_id: str = ""
+    feishu_notify_cooldown_seconds: float = 600.0
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -53,6 +59,18 @@ def _normalize_browser_engine(value: object) -> str:
         allowed = ", ".join(sorted(BROWSER_ENGINES))
         raise ValueError(f"browser_engine must be one of: {allowed}; got {engine!r}")
     return engine
+
+
+def _normalize_feishu_receive_id_type(value: object) -> str:
+    receive_id_type = str(value).strip()
+    if not receive_id_type:
+        return ""
+    if receive_id_type not in FEISHU_RECEIVE_ID_TYPES:
+        allowed = ", ".join(sorted(FEISHU_RECEIVE_ID_TYPES))
+        raise ValueError(
+            f"feishu_receive_id_type must be one of: {allowed}; got {receive_id_type!r}"
+        )
+    return receive_id_type
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -75,6 +93,7 @@ def load_settings(
     raw = _load_toml(path)
     mysql = raw.get("mysql", {}) if isinstance(raw.get("mysql"), dict) else {}
     crawl = raw.get("crawl", {}) if isinstance(raw.get("crawl"), dict) else {}
+    notify = raw.get("notify", {}) if isinstance(raw.get("notify"), dict) else {}
 
     data: dict[str, object] = {
         "mysql_host": mysql.get("host", "127.0.0.1"),
@@ -116,6 +135,15 @@ def load_settings(
         "external_solver_session": str(
             crawl.get("external_solver_session", "spiderhub")
         ),
+        "feishu_app_id": str(notify.get("app_id", "")),
+        "feishu_app_secret": str(notify.get("app_secret", "")),
+        "feishu_receive_id_type": _normalize_feishu_receive_id_type(
+            notify.get("receive_id_type", "")
+        ),
+        "feishu_receive_id": str(notify.get("receive_id", "")),
+        "feishu_notify_cooldown_seconds": float(
+            notify.get("notify_cooldown_seconds", 600.0)
+        ),
     }
 
     env_map = {
@@ -140,6 +168,11 @@ def load_settings(
         "external_solver_skip_browser": "SPIDERHUB_EXTERNAL_SOLVER_SKIP_BROWSER",
         "external_solver_timeout_ms": "SPIDERHUB_EXTERNAL_SOLVER_TIMEOUT_MS",
         "external_solver_session": "SPIDERHUB_EXTERNAL_SOLVER_SESSION",
+        "feishu_app_id": "SPIDERHUB_FEISHU_APP_ID",
+        "feishu_app_secret": "SPIDERHUB_FEISHU_APP_SECRET",
+        "feishu_receive_id_type": "SPIDERHUB_FEISHU_RECEIVE_ID_TYPE",
+        "feishu_receive_id": "SPIDERHUB_FEISHU_RECEIVE_ID",
+        "feishu_notify_cooldown_seconds": "SPIDERHUB_FEISHU_NOTIFY_COOLDOWN_SECONDS",
     }
     for field, key in env_map.items():
         if key in environ and environ[key] != "":
@@ -153,6 +186,7 @@ def load_settings(
                 "request_delay_seconds",
                 "http_timeout_seconds",
                 "browser_challenge_wait_seconds",
+                "feishu_notify_cooldown_seconds",
             }:
                 data[field] = float(environ[key])
             elif field in {
@@ -166,6 +200,8 @@ def load_settings(
                 data[field] = _as_bool(environ[key], True)
             elif field == "browser_engine":
                 data[field] = _normalize_browser_engine(environ[key])
+            elif field == "feishu_receive_id_type":
+                data[field] = _normalize_feishu_receive_id_type(environ[key])
             else:
                 data[field] = environ[key]
 
@@ -174,6 +210,8 @@ def load_settings(
             if value is not None and key in data:
                 if key == "browser_engine":
                     data[key] = _normalize_browser_engine(value)
+                elif key == "feishu_receive_id_type":
+                    data[key] = _normalize_feishu_receive_id_type(value)
                 else:
                     data[key] = value
 

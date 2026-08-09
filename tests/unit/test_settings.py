@@ -88,3 +88,32 @@ def test_invalid_browser_engine_raises(tmp_path: Path) -> None:
             env={"SPIDERHUB_BROWSER_ENGINE": "selenium"},
             config_path=tmp_path / "missing.toml",
         )
+
+
+def test_feishu_env_and_defaults(tmp_path: Path) -> None:
+    settings = load_settings(
+        env={
+            "SPIDERHUB_FEISHU_APP_ID": "cli_xxx",
+            "SPIDERHUB_FEISHU_APP_SECRET": "sec",
+            "SPIDERHUB_FEISHU_RECEIVE_ID_TYPE": "open_id",
+            "SPIDERHUB_FEISHU_RECEIVE_ID": "ou_xxx",
+            "SPIDERHUB_FEISHU_NOTIFY_COOLDOWN_SECONDS": "120",
+        },
+        config_path=tmp_path / "missing.toml",
+    )
+    assert settings.feishu_app_id == "cli_xxx"
+    assert settings.feishu_app_secret == "sec"
+    assert settings.feishu_receive_id_type == "open_id"
+    assert settings.feishu_receive_id == "ou_xxx"
+    assert settings.feishu_notify_cooldown_seconds == 120.0
+    defaults = load_settings(env={}, config_path=tmp_path / "missing.toml")
+    assert defaults.feishu_app_id == ""
+    assert defaults.feishu_notify_cooldown_seconds == 600.0
+
+
+def test_invalid_feishu_receive_id_type_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="feishu_receive_id_type"):
+        load_settings(
+            env={"SPIDERHUB_FEISHU_RECEIVE_ID_TYPE": "email"},
+            config_path=tmp_path / "missing.toml",
+        )
