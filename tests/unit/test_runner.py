@@ -86,16 +86,31 @@ class _ParseFailSpider(Spider):
         )
 
 
-class _FlakyClosedFetcher:
-    def __init__(self, error: str) -> None:
-        self.calls = 0
-        self._error = error
+class _RecordingPipeline(NullPipeline):
+    def __init__(self) -> None:
+        self.failed: list[dict[str, str]] = []
 
+    async def record_failed_url(
+        self,
+        *,
+        url: str,
+        spider_name: str,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        self.failed.append(
+            {
+                "url": url,
+                "spider_name": spider_name,
+                "error_type": error_type,
+                "error_message": error_message,
+            }
+        )
+
+
+class _AlwaysFailFetcher:
     async def fetch(self, url: str) -> FetchedResponse:
-        self.calls += 1
-        if self.calls == 1:
-            raise RuntimeError(self._error)
-        return FetchedResponse(url=url, status_code=200, text="<html>ok</html>")
+        raise RuntimeError("Page.goto: Timeout 30000ms exceeded.")
 
 
 class _ClosedOnceSpider(Spider):
@@ -115,24 +130,19 @@ class _ClosedOnceSpider(Spider):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "error",
-    [
-        "Page.goto: Target page, context or browser has been closed",
-        "Page.goto: Page crashed",
-    ],
-)
-async def test_runner_requeues_once_after_browser_closed(error: str) -> None:
-    fetcher = _FlakyClosedFetcher(error)
+async def test_runner_records_failed_url_on_fetch_error() -> None:
+    pipeline = _RecordingPipeline()
     result = await run_spider(
         _ClosedOnceSpider(),
-        fetcher=fetcher,  # type: ignore[arg-type]
-        pipeline=NullPipeline(),
+        fetcher=_AlwaysFailFetcher(),  # type: ignore[arg-type]
+        pipeline=pipeline,
         settings=Settings(obey_robots=False, request_delay_seconds=0.0),
     )
-    assert fetcher.calls == 2
-    assert result.items_ok == 1
-    assert result.urls_failed == 0
+    assert result.urls_failed == 1
+    assert result.items_ok == 0
+    assert len(pipeline.failed) == 1
+    assert pipeline.failed[0]["error_type"] == "fetch"
+    assert pipeline.failed[0]["url"] == "https://example.com/list"
 
 
 @pytest.mark.asyncio
@@ -161,3 +171,62 @@ async def test_runner_parse_failure_isolated() -> None:
         )
     assert result.urls_failed == 1
     assert result.items_ok == 1
+
+
+@pytest.mark.asyncio
+async def test_runner_records_failed_url_on_parse_error() -> None:
+    pages = {
+        "https://example.com/bad": "<html>bad</html>",
+        "https://example.com/ok": "<html>ok</html>",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=pages[str(request.url)], request=request)
+
+    settings = Settings(
+        obey_robots=False,
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+    )
+    pipeline = _RecordingPipeline()
+    transport = httpx.MockTransport(handler)
+    async with HttpxFetcher(settings, transport=transport) as fetcher:
+        result = await run_spider(
+            _ParseFailSpider(),
+            fetcher=fetcher,
+            pipeline=pipeline,
+            settings=settings,
+        )
+    assert result.items_ok == 1
+    assert result.urls_failed == 1
+    assert len(pipeline.failed) == 1
+    assert pipeline.failed[0]["error_type"] == "parse"
+    assert pipeline.failed[0]["url"] == "https://example.com/bad"
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_record_on_success() -> None:
+    pages = {
+        "https://example.com/list": "<html>list</html>",
+        "https://example.com/a": "<html>detail</html>",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=pages[str(request.url)], request=request)
+
+    settings = Settings(
+        obey_robots=False,
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+    )
+    pipeline = _RecordingPipeline()
+    transport = httpx.MockTransport(handler)
+    async with HttpxFetcher(settings, transport=transport) as fetcher:
+        result = await run_spider(
+            _ListSpider(),
+            fetcher=fetcher,
+            pipeline=pipeline,
+            settings=settings,
+        )
+    assert result.urls_failed == 0
+    assert pipeline.failed == []
