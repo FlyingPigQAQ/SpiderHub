@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse, urlunparse
 
 from selectolax.parser import HTMLParser, Node
 
@@ -134,6 +134,53 @@ def _code_from_url(page_url: str) -> str | None:
     return m.group(1).upper()
 
 
+_PAGE_QUERY_RE = re.compile(r"[?&]page=(\d+)", re.IGNORECASE)
+
+
+def _current_list_page(page_url: str) -> int:
+    values = parse_qs(urlparse(page_url).query).get("page") or []
+    if not values:
+        return 1
+    try:
+        return max(1, int(values[0]))
+    except ValueError:
+        return 1
+
+
+def _with_list_page(page_url: str, page: int) -> str:
+    parsed = urlparse(page_url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    if page <= 1:
+        query.pop("page", None)
+    else:
+        query["page"] = [str(page)]
+    new_query = urlencode(
+        [(key, value) for key, values in query.items() for value in values],
+        doseq=True,
+    )
+    return urlunparse(parsed._replace(query=new_query))
+
+
+def _next_page_from_numbered_links(tree: HTMLParser, page_url: str) -> str | None:
+    """Fallback when「下一页」缺失：从页码链接推断 current+1。"""
+    current = _current_list_page(page_url)
+    max_page = current
+    for anchor in tree.css("a[href]"):
+        href = anchor.attributes.get("href")
+        if not href:
+            continue
+        absolute = urljoin(page_url, href)
+        if "/actresses/" not in urlparse(absolute).path:
+            continue
+        match = _PAGE_QUERY_RE.search(absolute)
+        if match is None:
+            continue
+        max_page = max(max_page, int(match.group(1)))
+    if max_page <= current:
+        return None
+    return _with_list_page(page_url, current + 1)
+
+
 def parse_actress_list(html: str, page_url: str) -> ActressListPage:
     tree = HTMLParser(html)
     slug = _slug_from_actress_url(page_url)
@@ -193,6 +240,8 @@ def parse_actress_list(html: str, page_url: str) -> ActressListPage:
                 break
     if next_node and (next_href := next_node.attributes.get("href")):
         next_page_url = urljoin(page_url, next_href)
+    if next_page_url is None:
+        next_page_url = _next_page_from_numbered_links(tree, page_url)
 
     return ActressListPage(
         actress=actress, detail_urls=detail_urls, next_page_url=next_page_url

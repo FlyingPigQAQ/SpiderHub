@@ -4,6 +4,7 @@ import pytest
 
 from spiderhub.challenges.detect import ChallengeDetectedError
 from spiderhub.core.settings import Settings
+from spiderhub.downloaders.browser_challenge import is_closed_target_error
 from spiderhub.downloaders.playwright_fetcher import (
     PlaywrightFetcher,
     challenge_wait_cleared,
@@ -73,6 +74,79 @@ def test_is_transient_page_error_for_navigation() -> None:
         RuntimeError("Page.title: Execution context was destroyed")
     )
     assert not is_transient_page_error(RuntimeError("boom"))
+
+
+def test_is_closed_target_error() -> None:
+    assert is_closed_target_error(
+        RuntimeError("Page.goto: Target page, context or browser has been closed")
+    )
+    assert is_closed_target_error(
+        RuntimeError("browser/page closed during challenge wait")
+    )
+    assert not is_closed_target_error(RuntimeError("timeout 30000ms exceeded"))
+
+
+@pytest.mark.asyncio
+async def test_playwright_recovers_closed_page_and_retries() -> None:
+    class _FakePage:
+        url = "https://missav.ws/cn/x"
+
+        def __init__(self, *, fail_goto: bool) -> None:
+            self._fail_goto = fail_goto
+            self.context = self
+
+        async def goto(self, *_args: object, **_kwargs: object) -> object:
+            if self._fail_goto:
+                raise RuntimeError(
+                    "Page.goto: Target page, context or browser has been closed"
+                )
+
+            class _Resp:
+                status = 200
+
+            return _Resp()
+
+        async def title(self) -> str:
+            return "ok"
+
+        async def cookies(self) -> list[dict[str, str]]:
+            return [{"name": "cf_clearance", "value": "1"}]
+
+        async def content(self) -> str:
+            return "<html><title>ok</title><body>ok</body></html>"
+
+        async def wait_for_load_state(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    class _FakeContext:
+        def __init__(self) -> None:
+            self.pages_created = 0
+
+        async def cookies(self) -> list[dict[str, str]]:
+            return []
+
+        async def new_page(self) -> _FakePage:
+            self.pages_created += 1
+            # Replacement tab after the closed shared page should succeed.
+            return _FakePage(fail_goto=False)
+
+        async def storage_state(self, **_kwargs: object) -> None:
+            return None
+
+    settings = Settings(request_delay_seconds=0.0, browser_challenge_wait_seconds=1.0)
+    fetcher = PlaywrightFetcher(settings)
+    # Bypass real Playwright launch; drive recovery against fakes.
+    fetcher._context = _FakeContext()
+    fetcher._reuse_page = True
+    fetcher._shared_page = _FakePage(fail_goto=True)
+    fetcher._content_headless = True
+
+    resp = await fetcher.fetch("https://missav.ws/cn/x")
+    assert resp.status_code == 200
+    assert fetcher._context.pages_created == 1  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio

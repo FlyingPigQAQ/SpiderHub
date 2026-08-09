@@ -86,6 +86,49 @@ class _ParseFailSpider(Spider):
         )
 
 
+class _FlakyClosedFetcher:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def fetch(self, url: str) -> FetchedResponse:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError(
+                "Page.goto: Target page, context or browser has been closed"
+            )
+        return FetchedResponse(url=url, status_code=200, text="<html>ok</html>")
+
+
+class _ClosedOnceSpider(Spider):
+    name = "closed_once_demo"
+    allowed_domains = ("example.com",)
+    obey_robots = False
+
+    def start_urls(self) -> list[str]:
+        return ["https://example.com/list"]
+
+    async def parse(self, response: FetchedResponse):
+        yield Work(
+            code="OK-1",
+            title="Recovered",
+            detail_url=response.url,
+        )
+
+
+@pytest.mark.asyncio
+async def test_runner_requeues_once_after_browser_closed() -> None:
+    fetcher = _FlakyClosedFetcher()
+    result = await run_spider(
+        _ClosedOnceSpider(),
+        fetcher=fetcher,  # type: ignore[arg-type]
+        pipeline=NullPipeline(),
+        settings=Settings(obey_robots=False, request_delay_seconds=0.0),
+    )
+    assert fetcher.calls == 2
+    assert result.items_ok == 1
+    assert result.urls_failed == 0
+
+
 @pytest.mark.asyncio
 async def test_runner_parse_failure_isolated() -> None:
     pages = {

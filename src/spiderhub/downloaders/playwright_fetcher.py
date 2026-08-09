@@ -17,6 +17,7 @@ from spiderhub.core.settings import Settings
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.downloaders.browser_challenge import (
     challenge_wait_cleared,
+    is_closed_target_error,
     is_transient_page_error,
 )
 
@@ -29,8 +30,11 @@ __all__ = [
     "FetchPageFn",
     "PlaywrightFetcher",
     "challenge_wait_cleared",
+    "is_closed_target_error",
     "is_transient_page_error",
 ]
+
+_FETCH_CLOSED_RETRIES = 3
 
 
 class PlaywrightFetcher:
@@ -300,9 +304,57 @@ class PlaywrightFetcher:
             return self._shared_page
         return await self._context.new_page()
 
-    async def _fetch_page(self, url: str) -> tuple[str, int, str, dict[str, str]]:
-        if self._fetch_page_override is not None:
-            return await self._fetch_page_override(url)
+    async def _invalidate_shared_page(self) -> None:
+        if self._shared_page is None:
+            return
+        try:
+            await self._shared_page.close()
+        except Exception:  # noqa: BLE001 — already dead is fine
+            pass
+        self._shared_page = None
+
+    async def _browser_stack_alive(self) -> bool:
+        try:
+            if self._browser is not None and hasattr(self._browser, "is_connected"):
+                if not self._browser.is_connected():
+                    return False
+            if self._context is None:
+                return False
+            await self._context.cookies()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _relaunch_browser(self) -> None:
+        """Reconnect CDP / relaunch local browser after a hard disconnect."""
+        await self._close_browser_stack()
+        if self._playwright is None:
+            raise RuntimeError("Playwright driver is not running; cannot recover")
+        if self._cdp_url:
+            await self._connect_cdp()
+        elif not self._settings.browser_headless:
+            await self._launch_persistent()
+        else:
+            await self._launch_ephemeral()
+            self._content_headless = True
+
+    async def _recover_browser(self, *, url: str, attempt: int) -> None:
+        await self._invalidate_shared_page()
+        if await self._browser_stack_alive():
+            logger.warning(
+                "browser page closed; opening a new tab attempt=%s url=%s",
+                attempt,
+                url,
+            )
+            return
+        logger.warning(
+            "browser context/browser closed; reconnecting attempt=%s url=%s",
+            attempt,
+            url,
+        )
+        await self._relaunch_browser()
+
+    async def _navigate_once(self, url: str) -> tuple[str, int, str, dict[str, str]]:
         page = await self._ensure_page()
         close_page = not self._reuse_page
         try:
@@ -333,7 +385,25 @@ class PlaywrightFetcher:
             return str(page.url), status, text, headers
         finally:
             if close_page:
-                await page.close()
+                try:
+                    await page.close()
+                except Exception:  # noqa: BLE001 — best-effort cleanup
+                    pass
+
+    async def _fetch_page(self, url: str) -> tuple[str, int, str, dict[str, str]]:
+        if self._fetch_page_override is not None:
+            return await self._fetch_page_override(url)
+        last_exc: BaseException | None = None
+        for attempt in range(1, _FETCH_CLOSED_RETRIES + 1):
+            try:
+                return await self._navigate_once(url)
+            except Exception as exc:  # noqa: BLE001 — recover closed targets
+                last_exc = exc
+                if not is_closed_target_error(exc) or attempt >= _FETCH_CLOSED_RETRIES:
+                    raise
+                await self._recover_browser(url=url, attempt=attempt)
+        assert last_exc is not None
+        raise last_exc
 
     async def fetch(self, url: str) -> FetchedResponse:
         delay = self._settings.request_delay_seconds

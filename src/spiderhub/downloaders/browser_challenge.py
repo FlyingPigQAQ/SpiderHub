@@ -32,3 +32,19 @@ def is_transient_page_error(exc: BaseException) -> bool:
             "cannot find context with specified id",
         )
     )
+
+
+def is_closed_target_error(exc: BaseException) -> bool:
+    """True when Playwright reports page/context/browser already closed."""
+    msg = str(exc).lower()
+    return any(
+        needle in msg
+        for needle in (
+            "target page, context or browser has been closed",
+            "target closed",
+            "browser has been closed",
+            "context has been closed",
+            "page has been closed",
+            "browser/page closed",
+        )
+    )

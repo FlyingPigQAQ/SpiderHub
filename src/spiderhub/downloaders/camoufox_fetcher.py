@@ -16,11 +16,14 @@ from spiderhub.core.settings import Settings
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.downloaders.browser_challenge import (
     challenge_wait_cleared,
+    is_closed_target_error,
     is_transient_page_error,
 )
 from spiderhub.downloaders.playwright_fetcher import FetchPageFn
 
 logger = logging.getLogger(__name__)
+
+_FETCH_CLOSED_RETRIES = 3
 
 
 class CamoufoxFetcher:
@@ -200,9 +203,72 @@ class CamoufoxFetcher:
         assert self._browser is not None
         return await self._browser.new_page()
 
-    async def _fetch_page(self, url: str) -> tuple[str, int, str, dict[str, str]]:
-        if self._fetch_page_override is not None:
-            return await self._fetch_page_override(url)
+    async def _invalidate_shared_page(self) -> None:
+        if self._shared_page is None:
+            return
+        try:
+            await self._shared_page.close()
+        except Exception:  # noqa: BLE001
+            pass
+        self._shared_page = None
+
+    async def _browser_stack_alive(self) -> bool:
+        try:
+            if self._browser is not None and hasattr(self._browser, "is_connected"):
+                if not self._browser.is_connected():
+                    return False
+            if self._context is None:
+                return False
+            await self._context.cookies()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _relaunch_browser(self) -> None:
+        await self._invalidate_shared_page()
+        if self._owns_context and self._context is not None:
+            try:
+                await self._context.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self._context = None
+        self._owns_context = False
+        if self._browser_cm is not None:
+            try:
+                await self._browser_cm.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
+            self._browser_cm = None
+            self._browser = None
+        from camoufox.async_api import AsyncCamoufox
+
+        launch_kwargs: dict[str, Any] = {
+            "headless": self._settings.browser_headless,
+            "locale": "zh-CN",
+            "window": (1280, 800),
+        }
+        self._browser_cm = AsyncCamoufox(**launch_kwargs)
+        launched = await self._browser_cm.__aenter__()
+        self._browser = launched
+        await self._bind_context(launched)
+
+    async def _recover_browser(self, *, url: str, attempt: int) -> None:
+        await self._invalidate_shared_page()
+        if await self._browser_stack_alive():
+            logger.warning(
+                "camoufox page closed; opening a new tab attempt=%s url=%s",
+                attempt,
+                url,
+            )
+            return
+        logger.warning(
+            "camoufox browser closed; relaunching attempt=%s url=%s",
+            attempt,
+            url,
+        )
+        await self._relaunch_browser()
+
+    async def _navigate_once(self, url: str) -> tuple[str, int, str, dict[str, str]]:
         page = await self._ensure_page()
         close_page = not self._reuse_page
         try:
@@ -231,7 +297,25 @@ class CamoufoxFetcher:
             return str(page.url), status, text, {"content-type": "text/html"}
         finally:
             if close_page:
-                await page.close()
+                try:
+                    await page.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    async def _fetch_page(self, url: str) -> tuple[str, int, str, dict[str, str]]:
+        if self._fetch_page_override is not None:
+            return await self._fetch_page_override(url)
+        last_exc: BaseException | None = None
+        for attempt in range(1, _FETCH_CLOSED_RETRIES + 1):
+            try:
+                return await self._navigate_once(url)
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if not is_closed_target_error(exc) or attempt >= _FETCH_CLOSED_RETRIES:
+                    raise
+                await self._recover_browser(url=url, attempt=attempt)
+        assert last_exc is not None
+        raise last_exc
 
     async def fetch(self, url: str) -> FetchedResponse:
         delay = self._settings.request_delay_seconds

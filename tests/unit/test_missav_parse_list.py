@@ -36,3 +36,9 @@ def test_parse_real_dom_list_extracts_thumbnail_works() -> None:
     ]
     assert page.next_page_url is not None
     assert page.next_page_url.endswith("?page=2")
+
+
+def test_parse_numbered_pagination_without_next_link() -> None:
+    html = (FIX / "actress_list_numbered_pages.html").read_text(encoding="utf-8")
+    page = parse_actress_list(html, f"{BASE}?page=20")
+    assert page.next_page_url == f"{BASE}?page=21"
