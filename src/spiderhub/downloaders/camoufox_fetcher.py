@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -20,6 +21,7 @@ from spiderhub.downloaders.browser_challenge import (
     is_transient_page_error,
 )
 from spiderhub.downloaders.playwright_fetcher import FetchPageFn
+from spiderhub.events import ChallengeNeedsHuman, publish
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +163,14 @@ class CamoufoxFetcher:
             logger.warning(
                 "Camoufox: 若出现 Cloudflare 验证页，请在窗口中完成 (最长 %.0fs)",
                 wait_s,
+            )
+            await publish(
+                ChallengeNeedsHuman(
+                    url=str(page.url),
+                    engine="camoufox",
+                    wait_seconds=wait_s,
+                    at=datetime.now(UTC),
+                )
             )
         while time.monotonic() < deadline:
             try:

@@ -11,6 +11,7 @@ from spiderhub.core.registry import discover_builtin_spiders, get_spider, list_s
 from spiderhub.core.runner import run_spider
 from spiderhub.core.settings import load_settings
 from spiderhub.downloaders.auto_fetcher import AutoFetcher
+from spiderhub.notifiers.feishu import setup_feishu_notifier
 from spiderhub.pipelines.mysql import MySQLPipeline
 from spiderhub.pipelines.null import NullPipeline
 
@@ -47,6 +48,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         return 2
 
     settings = load_settings()
+    await setup_feishu_notifier(settings)
     spider = spider_cls(start_url=args.start_url, max_pages=args.max_pages)
 
     pipeline: NullPipeline | MySQLPipeline

@@ -10,6 +10,7 @@ from spiderhub.downloaders.playwright_fetcher import (
     challenge_wait_cleared,
     is_transient_page_error,
 )
+from spiderhub.events import ChallengeNeedsHuman
 
 
 @pytest.mark.asyncio
@@ -184,3 +185,96 @@ async def test_wait_challenge_clear_retries_navigation_errors() -> None:
     page = _FakePage()
     await fetcher._wait_challenge_clear(page, wait_s=3.0)
     assert page.calls >= 2
+
+
+@pytest.mark.asyncio
+async def test_wait_challenge_publishes_needs_human(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    published: list[object] = []
+
+    async def fake_publish(event: object) -> None:
+        published.append(event)
+
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.publish",
+        fake_publish,
+    )
+
+    class _FakePage:
+        url = "https://missav.ws/cn/x"
+
+        def __init__(self) -> None:
+            self.context = self
+
+        async def title(self) -> str:
+            return "ok"
+
+        async def cookies(self) -> list[dict[str, str]]:
+            return [{"name": "cf_clearance", "value": "1"}]
+
+        async def content(self) -> str:
+            return "<html>ok</html>"
+
+        async def wait_for_load_state(self, *_a: object, **_k: object) -> None:
+            return None
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        browser_challenge_wait_seconds=5.0,
+    )
+    fetcher = PlaywrightFetcher(settings)
+    fetcher._interactive = True
+    fetcher._content_headless = False
+    await fetcher._wait_challenge_clear(_FakePage(), wait_s=5.0)
+
+    assert len(published) == 1
+    event = published[0]
+    assert isinstance(event, ChallengeNeedsHuman)
+    assert event.url == "https://missav.ws/cn/x"
+    assert event.engine == "playwright"
+    assert event.wait_seconds == 5.0
+
+
+@pytest.mark.asyncio
+async def test_wait_challenge_skips_publish_when_headless(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    published: list[object] = []
+
+    async def fake_publish(event: object) -> None:
+        published.append(event)
+
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.publish",
+        fake_publish,
+    )
+
+    class _FakePage:
+        url = "https://missav.ws/cn/x"
+
+        def __init__(self) -> None:
+            self.context = self
+
+        async def title(self) -> str:
+            return "ok"
+
+        async def cookies(self) -> list[dict[str, str]]:
+            return [{"name": "cf_clearance", "value": "1"}]
+
+        async def content(self) -> str:
+            return "<html>ok</html>"
+
+        async def wait_for_load_state(self, *_a: object, **_k: object) -> None:
+            return None
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        browser_challenge_wait_seconds=5.0,
+    )
+    fetcher = PlaywrightFetcher(settings)
+    fetcher._interactive = False
+    fetcher._content_headless = True
+    await fetcher._wait_challenge_clear(_FakePage(), wait_s=5.0)
+
+    assert published == []
