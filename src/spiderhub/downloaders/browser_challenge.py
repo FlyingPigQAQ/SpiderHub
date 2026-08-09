@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from spiderhub.challenges.detect import detect_challenge, is_challenge_title
+from spiderhub.challenges.detect import (
+    ChallengeDetectedError,
+    detect_challenge,
+    is_challenge_title,
+)
 
 
 def challenge_wait_cleared(
@@ -53,3 +57,12 @@ def is_closed_target_error(exc: BaseException) -> bool:
             "page crashed",
         )
     )
+
+
+def is_recoverable_fetch_error(exc: BaseException) -> bool:
+    """True for closed/crash, navigation timeout, or transient page errors."""
+    if isinstance(exc, ChallengeDetectedError):
+        return False
+    if is_closed_target_error(exc) or is_transient_page_error(exc):
+        return True
+    return "timeout" in str(exc).lower()

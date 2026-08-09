@@ -4,7 +4,10 @@ import pytest
 
 from spiderhub.challenges.detect import ChallengeDetectedError
 from spiderhub.core.settings import Settings
-from spiderhub.downloaders.browser_challenge import is_closed_target_error
+from spiderhub.downloaders.browser_challenge import (
+    is_closed_target_error,
+    is_recoverable_fetch_error,
+)
 from spiderhub.downloaders.playwright_fetcher import (
     PlaywrightFetcher,
     challenge_wait_cleared,
@@ -86,6 +89,26 @@ def test_is_closed_target_error() -> None:
     )
     assert is_closed_target_error(RuntimeError("Page.goto: Page crashed"))
     assert not is_closed_target_error(RuntimeError("timeout 30000ms exceeded"))
+
+
+def test_is_recoverable_fetch_error() -> None:
+    assert is_recoverable_fetch_error(
+        RuntimeError(
+            "Page.goto: Timeout 30000ms exceeded.\n"
+            'Call log:\n  - navigating to "https://missav.ws/x", '
+            'waiting until "domcontentloaded"'
+        )
+    )
+    assert is_recoverable_fetch_error(
+        RuntimeError("Page.goto: Target page, context or browser has been closed")
+    )
+    assert is_recoverable_fetch_error(
+        RuntimeError("Page.content: Execution context was destroyed")
+    )
+    assert not is_recoverable_fetch_error(RuntimeError("boom"))
+    assert not is_recoverable_fetch_error(
+        ChallengeDetectedError("https://x", 403, "cf")
+    )
 
 
 @pytest.mark.asyncio
