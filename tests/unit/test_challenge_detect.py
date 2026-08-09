@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from spiderhub.challenges.detect import detect_challenge
+from spiderhub.challenges.detect import detect_challenge, is_challenge_title
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "challenges"
 
@@ -40,3 +40,10 @@ def test_200_chinese_cloudflare_wait_page_is_flagged() -> None:
     )
     reason = detect_challenge(url="https://missav.ws/x", status_code=200, text=html)
     assert reason is not None
+
+
+def test_is_challenge_title() -> None:
+    assert is_challenge_title("Just a moment...")
+    assert is_challenge_title("请稍候…")
+    assert is_challenge_title("Attention Required! | Cloudflare")
+    assert not is_challenge_title("北野未奈")

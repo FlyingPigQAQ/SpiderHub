@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping, Sequence
 from types import TracebackType
 
 import httpx
@@ -43,6 +44,21 @@ class HttpxFetcher:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    def set_cookies(self, cookies: Sequence[Mapping[str, object]]) -> None:
+        if self._client is None:
+            return
+        for cookie in cookies:
+            name = str(cookie.get("name", ""))
+            value = str(cookie.get("value", ""))
+            if not name:
+                continue
+            domain = str(cookie["domain"]) if cookie.get("domain") else ""
+            path = str(cookie.get("path") or "/")
+            if domain:
+                self._client.cookies.set(name, value, domain=domain, path=path)
+            else:
+                self._client.cookies.set(name, value, path=path)
 
     async def fetch(self, url: str) -> FetchedResponse:
         if self._client is None:

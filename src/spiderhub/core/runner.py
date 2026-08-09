@@ -50,6 +50,9 @@ async def _robots_allowed(
             resp = await fetcher.fetch(robots_url)
         except Exception:  # noqa: BLE001
             logger.warning("robots.txt fetch failed; allowing host=%s", host_key)
+            rp = RobotFileParser()
+            rp.parse(["User-agent: *", "Allow: /"])
+            cache[host_key] = rp
             return True
         rp = RobotFileParser()
         rp.parse(resp.text.splitlines())
@@ -86,12 +89,17 @@ async def run_spider(
                 ):
                     logger.warning("robots disallowed url=%s", url)
                     continue
+            logger.info("fetch url=%s", url)
             try:
                 response = await fetcher.fetch(url)
             except Exception as exc:  # noqa: BLE001 — counted failure boundary
                 result.urls_failed += 1
                 logger.warning("url failed url=%s err=%s", url, exc)
                 continue
+            if response.url != url:
+                logger.info("fetch ok url=%s final=%s", url, response.url)
+            else:
+                logger.info("fetch ok url=%s", url)
             if not _allowed(response.url, spider.allowed_domains):
                 result.urls_failed += 1
                 logger.warning(

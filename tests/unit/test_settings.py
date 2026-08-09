@@ -15,6 +15,7 @@ def test_defaults_and_env_override(tmp_path: Path) -> None:
             "SPIDERHUB_MYSQL_DATABASE": "hub",
             "SPIDERHUB_OBEY_ROBOTS": "false",
             "SPIDERHUB_REQUEST_DELAY_SECONDS": "0.5",
+            "SPIDERHUB_BROWSER_CDP_URL": "http://127.0.0.1:9222",
         },
         config_path=tmp_path / "missing.toml",
     )
@@ -25,6 +26,7 @@ def test_defaults_and_env_override(tmp_path: Path) -> None:
     assert settings.mysql_database == "hub"
     assert settings.obey_robots is False
     assert settings.request_delay_seconds == 0.5
+    assert settings.browser_cdp_url == "http://127.0.0.1:9222"
 
 
 def test_cli_overrides_env(tmp_path: Path) -> None:

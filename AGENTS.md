@@ -22,7 +22,7 @@ SpiderHub 是基于 Python 的爬虫中枢（Crawler Hub）：统一管理多站
 | 语言 | Python 3.11+ |
 | 包管理 | `uv` + `pyproject.toml`（`src/` 布局） |
 | 轻量 HTTP | `httpx`（已引入；L1 默认路径；不要与 `aiohttp` 混用两套客户端栈） |
-| 浏览器抓取 | `Playwright`（优先系统 Chrome `channel=chrome`，否则 bundled Chromium）；L3 路径 |
+| 浏览器抓取 | `Playwright`（优先 `SPIDERHUB_BROWSER_CDP_URL` 连接本机 Chrome；否则有头用 persistent profile，无头 `channel=chrome` / Chromium）；L3 路径 |
 | TLS/JA3 兼容客户端 | `curl_cffi`（已引入；L2 路径，`AutoFetcher` 遇挑战可升维） |
 | 反爬检测与降级 | 自研 `challenge` 检测 + `AutoFetcher`（L1 httpx → L2 curl_cffi → L3 Playwright；均可关闭） |
 | 代理 | 可插拔 proxy pool（住宅/ISP 优先于数据中心，按站点策略配置） |
@@ -80,7 +80,7 @@ SpiderHub/
 
 - **挑战检测**：识别 Cloudflare / 同类挑战页、403/503 + 特征正文、等待室等，并输出明确错误类型（勿当普通空页）。
 - **自动升级**：同一请求可按策略从 L1 升到 L2/L3；升级原因写入日志与指标。
-- **会话复用**：挑战通过后的 Cookie / 存储状态可复用到后续 L1/L2 请求，避免每页都开浏览器。
+- **会话复用**：挑战通过后 sticky 留在 L3；CDP 复用同一标签抓内容（不切 headless，以免再次卡 CF）。Cookie 仍写入 L1/L2 备用；CDP 场景以浏览器会话为准。
 - **代理策略**：按 `allowed_domains` / Spider 配置绑定代理池；失败时区分「代理差」与「挑战未通过」。
 - **站点策略声明**：Spider 元数据可声明 `fetch_mode`（`http` / `impersonate` / `browser` / `auto`）与是否允许升维。
 - **可关闭**：全局与 per-spider 都能禁用浏览器/外部解锁路径，便于合规与排障。
@@ -120,6 +120,7 @@ uv run spiderhub list
 uv run spiderhub run <spider_name>
 uv run spiderhub run <spider_name> --dry-run
 uv run spiderhub run missav_actress --start-url 'https://missav.ws/cn/actresses/...'
+uv run spiderhub run missav_actress --dry-run --max-pages 1
 
 # 建表（应用不自动 CREATE TABLE）
 mysql -u ... < scripts/sql/missav_schema.sql

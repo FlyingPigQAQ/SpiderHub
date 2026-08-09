@@ -29,6 +29,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Parse and validate without executing side effects",
     )
     run.add_argument("--start-url", default=None, help="Override spider start URL")
+    run.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="Limit actress list pages (e.g. 1 = first page only)",
+    )
     return parser
 
 
@@ -41,7 +47,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         return 2
 
     settings = load_settings()
-    spider = spider_cls(start_url=args.start_url) if args.start_url else spider_cls()
+    spider = spider_cls(start_url=args.start_url, max_pages=args.max_pages)
 
     pipeline: NullPipeline | MySQLPipeline
     if args.dry_run:

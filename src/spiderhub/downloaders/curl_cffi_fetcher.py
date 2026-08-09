@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import TracebackType
 from typing import Any
 
@@ -27,6 +27,7 @@ class CurlCffiFetcher:
         self._settings = settings
         self._get_override = get
         self._session: Any | None = None
+        self._pending_cookies: list[dict[str, object]] = []
 
     async def __aenter__(self) -> CurlCffiFetcher:
         if self._get_override is None:
@@ -37,6 +38,9 @@ class CurlCffiFetcher:
                 impersonate=self._settings.impersonate_target,
                 allow_redirects=True,
             )
+            if self._pending_cookies:
+                self.set_cookies(self._pending_cookies)
+                self._pending_cookies.clear()
         return self
 
     async def __aexit__(
@@ -49,6 +53,28 @@ class CurlCffiFetcher:
         if self._session is not None:
             await self._session.close()
             self._session = None
+
+    def set_cookies(self, cookies: Sequence[Mapping[str, object]]) -> None:
+        if self._session is None:
+            self._pending_cookies = [dict(c) for c in cookies]
+            return
+        jar = getattr(self._session, "cookies", None)
+        if jar is None:
+            return
+        for cookie in cookies:
+            name = str(cookie.get("name", ""))
+            value = str(cookie.get("value", ""))
+            if not name:
+                continue
+            kwargs: dict[str, object] = {}
+            if cookie.get("domain"):
+                kwargs["domain"] = str(cookie["domain"])
+            if cookie.get("path"):
+                kwargs["path"] = str(cookie["path"])
+            try:
+                jar.set(name, value, **kwargs)
+            except TypeError:
+                jar.set(name, value)
 
     async def _get(self, url: str) -> Any:
         if self._get_override is not None:

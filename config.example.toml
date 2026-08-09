@@ -14,3 +14,5 @@ impersonate_target = "chrome"
 browser_challenge_wait_seconds = 15.0
 browser_headless = true
 browser_storage_state = ".spiderhub/storage_state.json"
+# browser_cdp_url = "http://127.0.0.1:9222"
+browser_user_data_dir = ".spiderhub/chrome-profile"

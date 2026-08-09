@@ -22,7 +22,12 @@ def _is_robots_url(url: str) -> bool:
 
 
 class AutoFetcher:
-    """Sticky L1→L2→L3 upgrade on challenge (robots.txt never sticky-upgrades)."""
+    """Sticky L1→L2→L3 upgrade on challenge (robots.txt never sticky-upgrades).
+
+    After the first successful L3 solve, stay on L3 for content. MissAV-style CF
+    often still blocks L2 even with cookies; leaving CDP/browser avoids a hang on
+    headless re-challenge waits.
+    """
 
     def __init__(
         self,
@@ -39,6 +44,7 @@ class AutoFetcher:
         self._level = 1
         self._l2_entered = False
         self._l3_entered = False
+        self._browser_session_ready = False
 
     async def __aenter__(self) -> AutoFetcher:
         await self._l1.__aenter__()
@@ -70,6 +76,28 @@ class AutoFetcher:
             self._l3_entered = True
         self._level = 3
 
+    async def _prepare_browser_content_session(self) -> None:
+        if self._browser_session_ready:
+            return
+        cookies = await self._l3.export_cookies()
+        if cookies:
+            self._l1.set_cookies(cookies)
+            await self._ensure_l2()
+            self._l2.set_cookies(cookies)
+        await self._l3.prefer_headless_for_content()
+        self._level = 3
+        self._browser_session_ready = True
+        logger.info(
+            "browser session ready; sticky L3 for content "
+            "(reuse one browser tab, skip L2 CF bounce)"
+        )
+
+    async def _fetch_l3(self, url: str) -> FetchedResponse:
+        await self._ensure_l3()
+        response = await self._l3.fetch(url)
+        await self._prepare_browser_content_session()
+        return response
+
     async def fetch(self, url: str) -> FetchedResponse:
         if self._level >= 3:
             return await self._l3.fetch(url)
@@ -87,8 +115,7 @@ class AutoFetcher:
                     exc.status_code,
                     url,
                 )
-                await self._ensure_l3()
-                return await self._l3.fetch(url)
+                return await self._fetch_l3(url)
 
         try:
             return await self._l1.fetch(url)
@@ -113,5 +140,4 @@ class AutoFetcher:
                     exc2.status_code,
                     url,
                 )
-                await self._ensure_l3()
-                return await self._l3.fetch(url)
+                return await self._fetch_l3(url)

@@ -30,6 +30,12 @@ _STRONG_MARKERS_200 = (
     "检查您的浏览器",
 )
 
+_CHALLENGE_TITLE_MARKERS = (
+    "just a moment",
+    "请稍候",
+    "attention required",
+)
+
 
 class ChallengeDetectedError(Exception):
     def __init__(self, url: str, status_code: int, reason: str) -> None:
@@ -37,6 +43,11 @@ class ChallengeDetectedError(Exception):
         self.status_code = status_code
         self.reason = reason
         super().__init__(f"challenge detected for {url}: {reason} ({status_code})")
+
+
+def is_challenge_title(title: str) -> bool:
+    lowered = title.lower()
+    return any(marker in lowered for marker in _CHALLENGE_TITLE_MARKERS)
 
 
 def detect_challenge(

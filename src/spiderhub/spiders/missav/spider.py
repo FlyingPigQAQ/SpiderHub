@@ -16,8 +16,15 @@ class MissavActressSpider(Spider):
     allowed_domains = ("missav.ws",)
     fetch_mode = "auto"
 
-    def __init__(self, *, start_url: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        start_url: str | None = None,
+        max_pages: int | None = None,
+    ) -> None:
         self._start_url = start_url or DEFAULT_START
+        self._max_pages = max_pages
+        self._list_pages_seen = 0
 
     def start_urls(self) -> list[str]:
         return [self._start_url]
@@ -25,10 +32,13 @@ class MissavActressSpider(Spider):
     async def parse(self, response: FetchedResponse) -> AsyncIterator[ParseItem]:
         if "/actresses/" in response.url:
             page = parse_actress_list(response.text, response.url)
+            self._list_pages_seen += 1
             yield page.actress
             for detail in page.detail_urls:
                 yield detail
-            if page.next_page_url:
+            if page.next_page_url and (
+                self._max_pages is None or self._list_pages_seen < self._max_pages
+            ):
                 yield page.next_page_url
             return
         work = parse_work_detail(response.text, response.url)

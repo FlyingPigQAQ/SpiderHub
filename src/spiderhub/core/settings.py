@@ -27,6 +27,8 @@ class Settings:
     browser_challenge_wait_seconds: float = 15.0
     browser_headless: bool = True
     browser_storage_state: str = ".spiderhub/storage_state.json"
+    browser_cdp_url: str = ""
+    browser_user_data_dir: str = ".spiderhub/chrome-profile"
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -78,6 +80,10 @@ def load_settings(
         "browser_storage_state": str(
             crawl.get("browser_storage_state", ".spiderhub/storage_state.json")
         ),
+        "browser_cdp_url": str(crawl.get("browser_cdp_url", "")),
+        "browser_user_data_dir": str(
+            crawl.get("browser_user_data_dir", ".spiderhub/chrome-profile")
+        ),
     }
 
     env_map = {
@@ -94,6 +100,8 @@ def load_settings(
         "browser_challenge_wait_seconds": "SPIDERHUB_BROWSER_CHALLENGE_WAIT_SECONDS",
         "browser_headless": "SPIDERHUB_BROWSER_HEADLESS",
         "browser_storage_state": "SPIDERHUB_BROWSER_STORAGE_STATE",
+        "browser_cdp_url": "SPIDERHUB_BROWSER_CDP_URL",
+        "browser_user_data_dir": "SPIDERHUB_BROWSER_USER_DATA_DIR",
     }
     for field, key in env_map.items():
         if key in environ and environ[key] != "":
