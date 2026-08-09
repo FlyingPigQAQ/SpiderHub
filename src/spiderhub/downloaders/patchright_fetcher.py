@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -19,22 +18,13 @@ from spiderhub.downloaders.browser_challenge import (
     challenge_wait_cleared,
     is_transient_page_error,
 )
+from spiderhub.downloaders.playwright_fetcher import FetchPageFn
 
 logger = logging.getLogger(__name__)
 
-FetchPageFn = Callable[[str], Awaitable[tuple[str, int, str, dict[str, str]]]]
 
-# Re-export for existing tests / callers.
-__all__ = [
-    "FetchPageFn",
-    "PlaywrightFetcher",
-    "challenge_wait_cleared",
-    "is_transient_page_error",
-]
-
-
-class PlaywrightFetcher:
-    """L3 fetcher: real browser for JS / bot-management challenges."""
+class PatchrightFetcher:
+    """L3 fetcher using Patchright (stealth Chromium, Playwright-compatible API)."""
 
     def __init__(
         self,
@@ -49,49 +39,34 @@ class PlaywrightFetcher:
         self._context: Any | None = None
         self._storage_path = Path(settings.browser_storage_state)
         self._user_data_dir = Path(settings.browser_user_data_dir)
-        self._cdp_url = settings.browser_cdp_url.strip()
         self._owns_browser = False
         self._owns_context = False
-        self._interactive = bool(self._cdp_url) or not settings.browser_headless
-        self._content_headless = False
-        self._keep_cdp = bool(self._cdp_url)
-        self._reuse_page = False
+        self._interactive = not settings.browser_headless
+        self._content_headless = settings.browser_headless
+        self._reuse_page = not settings.browser_headless
         self._shared_page: Any | None = None
 
-    async def __aenter__(self) -> PlaywrightFetcher:
+    async def __aenter__(self) -> PatchrightFetcher:
         if self._fetch_page_override is None:
-            from playwright.async_api import async_playwright
-
+            try:
+                from patchright.async_api import async_playwright
+            except ImportError as exc:  # pragma: no cover - env dependent
+                raise ImportError(
+                    "browser_engine=patchright requires optional dependency; "
+                    "install with: uv sync --extra stealth && "
+                    "uv run patchright install chromium"
+                ) from exc
             self._playwright = await async_playwright().start()
-            if self._cdp_url:
-                await self._connect_cdp()
-            elif not self._settings.browser_headless:
+            if not self._settings.browser_headless:
                 await self._launch_persistent()
             else:
                 await self._launch_ephemeral()
                 self._content_headless = True
-        return self
-
-    async def _connect_cdp(self) -> None:
-        assert self._playwright is not None
-        logger.info("connecting Playwright over CDP url=%s", self._cdp_url)
-        self._browser = await self._playwright.chromium.connect_over_cdp(self._cdp_url)
-        self._owns_browser = True  # close() only disconnects CDP
-        if self._browser.contexts:
-            self._context = self._browser.contexts[0]
-            self._owns_context = False
-        else:
-            self._context = await self._browser.new_context(
-                locale="zh-CN",
-                viewport={"width": 1280, "height": 800},
+            logger.info(
+                "patchright L3 ready headless=%s",
+                self._settings.browser_headless,
             )
-            self._owns_context = True
-        self._reuse_page = True
-        self._keep_cdp = True
-        logger.warning(
-            "已连接本机 Chrome（CDP）。若出现 Cloudflare 验证，请在该窗口完成；"
-            "后续页面会复用同一标签，不再为每页新建窗口"
-        )
+        return self
 
     async def _launch_persistent(self) -> None:
         assert self._playwright is not None
@@ -101,48 +76,18 @@ class PlaywrightFetcher:
             "headless": False,
             "locale": "zh-CN",
             "viewport": {"width": 1280, "height": 800},
-            "args": ["--disable-blink-features=AutomationControlled"],
-            "ignore_default_args": ["--enable-automation"],
         }
         if self._storage_path.is_file():
             launch_kwargs["storage_state"] = str(self._storage_path)
-            logger.info("loaded browser storage_state path=%s", self._storage_path)
-        try:
-            self._context = await self._playwright.chromium.launch_persistent_context(
-                channel="chrome",
-                **launch_kwargs,
-            )
-        except Exception:
-            logger.warning("launch_persistent channel=chrome failed; trying chromium")
-            self._context = await self._playwright.chromium.launch_persistent_context(
-                **launch_kwargs,
-            )
+        self._context = await self._playwright.chromium.launch_persistent_context(
+            **launch_kwargs,
+        )
         self._owns_context = True
         self._reuse_page = True
-        await self._context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
-        logger.warning(
-            "有头模式使用独立 Chrome 配置目录 path=%s；若验证框勾选后反复刷新，"
-            "请改用 SPIDERHUB_BROWSER_CDP_URL 连接你手动启动的 Chrome",
-            self._user_data_dir,
-        )
 
     async def _launch_ephemeral(self) -> None:
         assert self._playwright is not None
-        launch_kwargs: dict[str, Any] = {
-            "headless": True,
-            "args": ["--disable-blink-features=AutomationControlled"],
-            "ignore_default_args": ["--enable-automation"],
-        }
-        try:
-            self._browser = await self._playwright.chromium.launch(
-                channel="chrome",
-                **launch_kwargs,
-            )
-        except Exception:
-            logger.warning("launch channel=chrome failed; trying bundled chromium")
-            self._browser = await self._playwright.chromium.launch(**launch_kwargs)
+        self._browser = await self._playwright.chromium.launch(headless=True)
         self._owns_browser = True
         context_kwargs: dict[str, Any] = {
             "locale": "zh-CN",
@@ -150,12 +95,8 @@ class PlaywrightFetcher:
         }
         if self._storage_path.is_file():
             context_kwargs["storage_state"] = str(self._storage_path)
-            logger.info("loaded browser storage_state path=%s", self._storage_path)
         self._context = await self._browser.new_context(**context_kwargs)
         self._owns_context = True
-        await self._context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
 
     async def __aexit__(
         self,
@@ -164,30 +105,10 @@ class PlaywrightFetcher:
         exc_tb: TracebackType | None,
     ) -> None:
         del exc_type, exc_val, exc_tb
-        await self._close_browser_stack()
-        if self._playwright is not None:
-            await self._playwright.stop()
-            self._playwright = None
-
-    async def _persist_storage(self) -> None:
-        if self._context is None or self._fetch_page_override is not None:
-            return
-        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
-        await self._context.storage_state(path=str(self._storage_path))
-        logger.info("saved browser storage_state path=%s", self._storage_path)
-
-    async def export_cookies(self) -> list[dict[str, Any]]:
-        if self._context is None or self._fetch_page_override is not None:
-            return []
-        cookies = await self._context.cookies()
-        return [dict(cookie) for cookie in cookies]
-
-    async def _close_browser_stack(self) -> None:
-        """Detach current browser/context; CDP close only disconnects."""
         if self._shared_page is not None:
             try:
                 await self._shared_page.close()
-            except Exception:  # noqa: BLE001 — best-effort cleanup
+            except Exception:  # noqa: BLE001
                 pass
             self._shared_page = None
         if self._owns_context and self._context is not None:
@@ -198,47 +119,31 @@ class PlaywrightFetcher:
             await self._browser.close()
         self._browser = None
         self._owns_browser = False
+        if self._playwright is not None:
+            await self._playwright.stop()
+            self._playwright = None
+
+    async def _persist_storage(self) -> None:
+        if self._context is None or self._fetch_page_override is not None:
+            return
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        await self._context.storage_state(path=str(self._storage_path))
+        logger.info("saved patchright storage_state path=%s", self._storage_path)
+
+    async def export_cookies(self) -> list[dict[str, Any]]:
+        if self._context is None or self._fetch_page_override is not None:
+            return []
+        cookies = await self._context.cookies()
+        return [dict(cookie) for cookie in cookies]
 
     async def prefer_headless_for_content(self) -> None:
-        """Optionally move off interactive chrome after CF solve.
-
-        CDP sessions stay attached: headless Chromium often fails the same CF that
-        the real Chrome just passed, which looks like a hang on long waits.
-        """
-        if self._fetch_page_override is not None:
-            return
-        if self._content_headless:
-            return
-        if self._keep_cdp or self._cdp_url:
-            await self._persist_storage()
-            logger.info(
-                "keep CDP browser for content crawl; reuse one tab path=%s",
-                self._storage_path,
-            )
-            return
-        if not self._settings.browser_headless:
-            return
-        if self._playwright is None:
-            return
         await self._persist_storage()
-        await self._close_browser_stack()
-        self._interactive = False
-        self._reuse_page = False
-        await self._launch_ephemeral()
-        self._content_headless = True
-        logger.info(
-            "switched browser to headless for content crawl path=%s",
-            self._storage_path,
-        )
 
     async def _stable_page_content(self, page: Any, *, attempts: int = 10) -> str:
         last_exc: BaseException | None = None
         for _ in range(attempts):
             try:
-                await page.wait_for_load_state(
-                    "domcontentloaded",
-                    timeout=5_000,
-                )
+                await page.wait_for_load_state("domcontentloaded", timeout=5_000)
                 return str(await page.content())
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
@@ -250,12 +155,10 @@ class PlaywrightFetcher:
         raise last_exc
 
     async def _wait_challenge_clear(self, page: Any, *, wait_s: float) -> None:
-        """Poll title/cookies/HTML without injecting wait_for_function into the page."""
         deadline = time.monotonic() + wait_s
         if self._interactive and not self._content_headless:
             logger.warning(
-                "若出现 Cloudflare 验证页，请在浏览器窗口中手动完成验证 "
-                "(最长等待 %.0fs)",
+                "Patchright: 若出现 Cloudflare 验证页，请在窗口中完成 (最长 %.0fs)",
                 wait_s,
             )
         while time.monotonic() < deadline:
@@ -276,23 +179,17 @@ class PlaywrightFetcher:
                 ):
                     return
             except Exception as exc:  # noqa: BLE001
-                msg = str(exc).lower()
-                if "closed" in msg or "target page" in msg:
-                    raise RuntimeError(
-                        "browser/page closed during challenge wait; "
-                        "请勿关闭验证窗口，或改用 SPIDERHUB_BROWSER_CDP_URL"
-                    ) from exc
                 if is_transient_page_error(exc):
                     await asyncio.sleep(0.5)
                     continue
                 raise
             await asyncio.sleep(0.5)
-        logger.warning("browser challenge wait timed out url=%s", page.url)
+        logger.warning("patchright challenge wait timed out url=%s", page.url)
 
     async def _ensure_page(self) -> Any:
         if self._context is None:
             raise RuntimeError(
-                "PlaywrightFetcher must be used as async context manager"
+                "PatchrightFetcher must be used as async context manager"
             )
         if self._reuse_page:
             if self._shared_page is None:
@@ -314,7 +211,6 @@ class PlaywrightFetcher:
             status = int(response.status) if response is not None else 200
             wait_s = max(5.0, self._settings.browser_challenge_wait_seconds)
             if self._content_headless:
-                # Headless cannot complete interactive Turnstile; fail fast.
                 wait_s = min(wait_s, 15.0)
             await self._wait_challenge_clear(page, wait_s=wait_s)
             text = await self._stable_page_content(page)
@@ -329,8 +225,7 @@ class PlaywrightFetcher:
                 text = probe
             else:
                 status = 200
-            headers = {"content-type": "text/html"}
-            return str(page.url), status, text, headers
+            return str(page.url), status, text, {"content-type": "text/html"}
         finally:
             if close_page:
                 await page.close()
@@ -349,7 +244,7 @@ class PlaywrightFetcher:
         if reason:
             raise ChallengeDetectedError(final_url, status, reason)
         if not (200 <= status < 300):
-            raise RuntimeError(f"browser status {status} for {final_url}")
+            raise RuntimeError(f"patchright status {status} for {final_url}")
         await self._persist_storage()
         return FetchedResponse(
             url=final_url,

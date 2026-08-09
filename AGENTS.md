@@ -22,9 +22,10 @@ SpiderHub 是基于 Python 的爬虫中枢（Crawler Hub）：统一管理多站
 | 语言 | Python 3.11+ |
 | 包管理 | `uv` + `pyproject.toml`（`src/` 布局） |
 | 轻量 HTTP | `httpx`（已引入；L1 默认路径；不要与 `aiohttp` 混用两套客户端栈） |
-| 浏览器抓取 | `Playwright`（优先 `SPIDERHUB_BROWSER_CDP_URL` 连接本机 Chrome；否则有头用 persistent profile，无头 `channel=chrome` / Chromium）；L3 路径 |
+| 浏览器抓取 | L3：`browser_engine`=`playwright` / `camoufox` / `patchright`（默认 playwright；有 CDP URL 时强制 Playwright）；`camoufox`/`patchright` 为 optional extra `stealth` |
 | TLS/JA3 兼容客户端 | `curl_cffi`（已引入；L2 路径，`AutoFetcher` 遇挑战可升维） |
-| 反爬检测与降级 | 自研 `challenge` 检测 + `AutoFetcher`（L1 httpx → L2 curl_cffi → L3 Playwright；均可关闭） |
+| 反爬检测与降级 | 自研 `challenge` 检测 + `AutoFetcher`（L1 httpx → L2 curl_cffi → L3 browser → 可选 L4 Solverr；均可关闭） |
+| 外部解锁适配器 | L4：FlareSolverr/Solverr 兼容 `/v1`（`allow_external_solver`，默认关闭） |
 | 代理 | 可插拔 proxy pool（住宅/ISP 优先于数据中心，按站点策略配置） |
 | 解析 | `selectolax`（已引入；MissAV 切片使用）；`parsel` / `lxml` 可按需引入 |
 | 校验 | `pydantic` v2（已引入） |
@@ -73,14 +74,14 @@ SpiderHub/
 
 1. **L1 `httpx`**：API / 弱防护页面；最快、最省资源。
 2. **L2 `curl_cffi`**：需要更接近浏览器的 TLS/HTTP2 指纹时使用。
-3. **L3 `Playwright`**：JS 挑战、强 Bot Management、必须执行页面脚本时使用。
-4. **L4 外部适配器（可选）**：商业反爬/解锁 API；仅配置启用，默认关闭。
+3. **L3 浏览器**：JS 挑战、强 Bot Management。引擎由 `browser_engine` 单选（`playwright` / `camoufox` / `patchright`，互不自动 fallback）；有 CDP URL 时强制本机 Chrome。
+4. **L4 外部适配器（可选）**：FlareSolverr/Solverr 兼容 HTTP API；仅配置启用，默认关闭。可 `external_solver_skip_browser` 跳过 L3；成功后 sticky L4。
 
 ### 必须具备的能力
 
 - **挑战检测**：识别 Cloudflare / 同类挑战页、403/503 + 特征正文、等待室等，并输出明确错误类型（勿当普通空页）。
-- **自动升级**：同一请求可按策略从 L1 升到 L2/L3；升级原因写入日志与指标。
-- **会话复用**：挑战通过后 sticky 留在 L3；CDP 复用同一标签抓内容（不切 headless，以免再次卡 CF）。Cookie 仍写入 L1/L2 备用；CDP 场景以浏览器会话为准。
+- **自动升级**：同一请求可按策略从 L1 升到 L2/L3/L4；升级原因写入日志与指标。
+- **会话复用**：挑战通过后 sticky 留在 L3 或 L4；CDP 复用同一标签抓内容（不切 headless，以免再次卡 CF）。Cookie 仍写入 L1/L2 备用；CDP 场景以浏览器会话为准。
 - **代理策略**：按 `allowed_domains` / Spider 配置绑定代理池；失败时区分「代理差」与「挑战未通过」。
 - **站点策略声明**：Spider 元数据可声明 `fetch_mode`（`http` / `impersonate` / `browser` / `auto`）与是否允许升维。
 - **可关闭**：全局与 per-spider 都能禁用浏览器/外部解锁路径，便于合规与排障。
@@ -108,6 +109,10 @@ Agent 不得在未获用户明确授权时绕过上述规则。
 ```bash
 # 环境
 uv sync
+# 可选 L3 stealth 引擎（Camoufox / Patchright）
+uv sync --extra stealth
+uv run python -m camoufox fetch          # Camoufox 浏览器二进制
+uv run patchright install chromium       # Patchright Chromium
 
 # 质量
 uv run ruff check .

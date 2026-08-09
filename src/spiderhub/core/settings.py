@@ -9,6 +9,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+BROWSER_ENGINES = frozenset({"playwright", "camoufox", "patchright"})
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
@@ -24,11 +26,17 @@ class Settings:
     allow_fetcher_upgrade: bool = True
     allow_browser: bool = True
     impersonate_target: str = "chrome"
+    browser_engine: str = "playwright"
     browser_challenge_wait_seconds: float = 15.0
     browser_headless: bool = True
     browser_storage_state: str = ".spiderhub/storage_state.json"
     browser_cdp_url: str = ""
     browser_user_data_dir: str = ".spiderhub/chrome-profile"
+    allow_external_solver: bool = False
+    external_solver_url: str = "http://127.0.0.1:8191/v1"
+    external_solver_skip_browser: bool = False
+    external_solver_timeout_ms: int = 60_000
+    external_solver_session: str = "spiderhub"
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -37,6 +45,14 @@ def _as_bool(value: object, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _normalize_browser_engine(value: object) -> str:
+    engine = str(value).strip().lower() or "playwright"
+    if engine not in BROWSER_ENGINES:
+        allowed = ", ".join(sorted(BROWSER_ENGINES))
+        raise ValueError(f"browser_engine must be one of: {allowed}; got {engine!r}")
+    return engine
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -73,6 +89,9 @@ def load_settings(
         "allow_fetcher_upgrade": _as_bool(crawl.get("allow_fetcher_upgrade"), True),
         "allow_browser": _as_bool(crawl.get("allow_browser"), True),
         "impersonate_target": str(crawl.get("impersonate_target", "chrome")),
+        "browser_engine": _normalize_browser_engine(
+            crawl.get("browser_engine", "playwright")
+        ),
         "browser_challenge_wait_seconds": float(
             crawl.get("browser_challenge_wait_seconds", 15.0)
         ),
@@ -83,6 +102,19 @@ def load_settings(
         "browser_cdp_url": str(crawl.get("browser_cdp_url", "")),
         "browser_user_data_dir": str(
             crawl.get("browser_user_data_dir", ".spiderhub/chrome-profile")
+        ),
+        "allow_external_solver": _as_bool(crawl.get("allow_external_solver"), False),
+        "external_solver_url": str(
+            crawl.get("external_solver_url", "http://127.0.0.1:8191/v1")
+        ),
+        "external_solver_skip_browser": _as_bool(
+            crawl.get("external_solver_skip_browser"), False
+        ),
+        "external_solver_timeout_ms": int(
+            crawl.get("external_solver_timeout_ms", 60_000)
+        ),
+        "external_solver_session": str(
+            crawl.get("external_solver_session", "spiderhub")
         ),
     }
 
@@ -97,15 +129,25 @@ def load_settings(
         "allow_fetcher_upgrade": "SPIDERHUB_ALLOW_FETCHER_UPGRADE",
         "allow_browser": "SPIDERHUB_ALLOW_BROWSER",
         "impersonate_target": "SPIDERHUB_IMPERSONATE_TARGET",
+        "browser_engine": "SPIDERHUB_BROWSER_ENGINE",
         "browser_challenge_wait_seconds": "SPIDERHUB_BROWSER_CHALLENGE_WAIT_SECONDS",
         "browser_headless": "SPIDERHUB_BROWSER_HEADLESS",
         "browser_storage_state": "SPIDERHUB_BROWSER_STORAGE_STATE",
         "browser_cdp_url": "SPIDERHUB_BROWSER_CDP_URL",
         "browser_user_data_dir": "SPIDERHUB_BROWSER_USER_DATA_DIR",
+        "allow_external_solver": "SPIDERHUB_ALLOW_EXTERNAL_SOLVER",
+        "external_solver_url": "SPIDERHUB_EXTERNAL_SOLVER_URL",
+        "external_solver_skip_browser": "SPIDERHUB_EXTERNAL_SOLVER_SKIP_BROWSER",
+        "external_solver_timeout_ms": "SPIDERHUB_EXTERNAL_SOLVER_TIMEOUT_MS",
+        "external_solver_session": "SPIDERHUB_EXTERNAL_SOLVER_SESSION",
     }
     for field, key in env_map.items():
         if key in environ and environ[key] != "":
-            if field in {"mysql_port", "http_max_retries"}:
+            if field in {
+                "mysql_port",
+                "http_max_retries",
+                "external_solver_timeout_ms",
+            }:
                 data[field] = int(environ[key])
             elif field in {
                 "request_delay_seconds",
@@ -118,14 +160,21 @@ def load_settings(
                 "allow_fetcher_upgrade",
                 "allow_browser",
                 "browser_headless",
+                "allow_external_solver",
+                "external_solver_skip_browser",
             }:
                 data[field] = _as_bool(environ[key], True)
+            elif field == "browser_engine":
+                data[field] = _normalize_browser_engine(environ[key])
             else:
                 data[field] = environ[key]
 
     if cli_overrides:
         for key, value in cli_overrides.items():
             if value is not None and key in data:
-                data[key] = value
+                if key == "browser_engine":
+                    data[key] = _normalize_browser_engine(value)
+                else:
+                    data[key] = value
 
     return Settings(**data)  # type: ignore[arg-type]

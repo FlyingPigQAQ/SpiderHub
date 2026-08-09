@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from spiderhub.core.settings import load_settings
 
 
@@ -16,6 +18,12 @@ def test_defaults_and_env_override(tmp_path: Path) -> None:
             "SPIDERHUB_OBEY_ROBOTS": "false",
             "SPIDERHUB_REQUEST_DELAY_SECONDS": "0.5",
             "SPIDERHUB_BROWSER_CDP_URL": "http://127.0.0.1:9222",
+            "SPIDERHUB_BROWSER_ENGINE": "camoufox",
+            "SPIDERHUB_ALLOW_EXTERNAL_SOLVER": "true",
+            "SPIDERHUB_EXTERNAL_SOLVER_URL": "http://127.0.0.1:8191/v1",
+            "SPIDERHUB_EXTERNAL_SOLVER_SKIP_BROWSER": "true",
+            "SPIDERHUB_EXTERNAL_SOLVER_TIMEOUT_MS": "45000",
+            "SPIDERHUB_EXTERNAL_SOLVER_SESSION": "sess-a",
         },
         config_path=tmp_path / "missing.toml",
     )
@@ -27,6 +35,15 @@ def test_defaults_and_env_override(tmp_path: Path) -> None:
     assert settings.obey_robots is False
     assert settings.request_delay_seconds == 0.5
     assert settings.browser_cdp_url == "http://127.0.0.1:9222"
+    assert settings.browser_engine == "camoufox"
+    assert settings.allow_external_solver is True
+    assert settings.external_solver_url == "http://127.0.0.1:8191/v1"
+    assert settings.external_solver_skip_browser is True
+    assert settings.external_solver_timeout_ms == 45000
+    assert settings.external_solver_session == "sess-a"
+    defaults = load_settings(env={}, config_path=tmp_path / "missing.toml")
+    assert defaults.browser_engine == "playwright"
+    assert defaults.allow_external_solver is False
 
 
 def test_cli_overrides_env(tmp_path: Path) -> None:
@@ -53,10 +70,21 @@ def test_toml_file_values(tmp_path: Path) -> None:
     path.write_text(
         '[mysql]\nhost = "toml-host"\nport = 3308\nuser = "tu"\n'
         'password = "tp"\ndatabase = "tdb"\n'
-        "[crawl]\nobey_robots = false\nrequest_delay_seconds = 2.0\n",
+        "[crawl]\nobey_robots = false\nrequest_delay_seconds = 2.0\n"
+        'browser_engine = "patchright"\nallow_external_solver = true\n',
         encoding="utf-8",
     )
     settings = load_settings(env={}, config_path=path)
     assert settings.mysql_host == "toml-host"
     assert settings.mysql_port == 3308
     assert settings.request_delay_seconds == 2.0
+    assert settings.browser_engine == "patchright"
+    assert settings.allow_external_solver is True
+
+
+def test_invalid_browser_engine_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="browser_engine"):
+        load_settings(
+            env={"SPIDERHUB_BROWSER_ENGINE": "selenium"},
+            config_path=tmp_path / "missing.toml",
+        )

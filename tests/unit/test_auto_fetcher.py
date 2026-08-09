@@ -10,6 +10,7 @@ from spiderhub.core.settings import Settings
 from spiderhub.downloaders.auto_fetcher import AutoFetcher
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.downloaders.curl_cffi_fetcher import CurlCffiFetcher
+from spiderhub.downloaders.external_solver_fetcher import ExternalSolverFetcher
 from spiderhub.downloaders.playwright_fetcher import PlaywrightFetcher
 
 
@@ -211,6 +212,182 @@ async def test_auto_fetcher_upgrade_disabled_reraises() -> None:
     async with AutoFetcher(
         settings,
         transport=httpx.MockTransport(l1_handler),
+    ) as fetcher:
+        with pytest.raises(ChallengeDetectedError):
+            await fetcher.fetch("https://missav.ws/cn/a")
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_l2_to_l4_skip_browser() -> None:
+    calls = {"l3": 0, "l4": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        return SimpleNamespace(
+            url=url,
+            status_code=403,
+            text="<title>Just a moment...</title>challenge-platform",
+            headers={},
+        )
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return url, 200, "<html>should-not-l3</html>", {}
+
+    def l4_handler(request: httpx.Request) -> httpx.Response:
+        calls["l4"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "solution": {
+                    "url": "https://missav.ws/cn/a",
+                    "status": 200,
+                    "response": "<html>upgraded-l4</html>",
+                    "cookies": [],
+                },
+            },
+            request=request,
+        )
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        allow_external_solver=True,
+        external_solver_skip_browser=True,
+        external_solver_url="http://solver.test/v1",
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=PlaywrightFetcher(settings, fetch_page=l3_page),
+        l4=ExternalSolverFetcher(settings, transport=httpx.MockTransport(l4_handler)),
+    ) as fetcher:
+        first = await fetcher.fetch("https://missav.ws/cn/a")
+        second = await fetcher.fetch("https://missav.ws/cn/b")
+    assert "upgraded-l4" in first.text
+    assert "upgraded-l4" in second.text
+    assert calls["l3"] == 0
+    assert calls["l4"] == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_l3_to_l4_sticky() -> None:
+    calls = {"l3": 0, "l4": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        return SimpleNamespace(
+            url=url,
+            status_code=403,
+            text="<title>Just a moment...</title>challenge-platform",
+            headers={},
+        )
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return (
+            url,
+            403,
+            "<title>Just a moment...</title>challenge-platform",
+            {},
+        )
+
+    def l4_handler(request: httpx.Request) -> httpx.Response:
+        calls["l4"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "solution": {
+                    "url": str(request.url),
+                    "status": 200,
+                    "response": f"<html>l4-{calls['l4']}</html>",
+                    "cookies": [],
+                },
+            },
+            request=request,
+        )
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        allow_external_solver=True,
+        external_solver_skip_browser=False,
+        external_solver_url="http://solver.test/v1",
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=PlaywrightFetcher(settings, fetch_page=l3_page),
+        l4=ExternalSolverFetcher(settings, transport=httpx.MockTransport(l4_handler)),
+    ) as fetcher:
+        first = await fetcher.fetch("https://missav.ws/cn/a")
+        second = await fetcher.fetch("https://missav.ws/cn/b")
+    assert "l4-1" in first.text
+    assert "l4-2" in second.text
+    assert calls["l3"] == 1
+    assert calls["l4"] == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_l4_disabled_does_not_upgrade_from_l3() -> None:
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        return SimpleNamespace(
+            url=url,
+            status_code=403,
+            text="<title>Just a moment...</title>challenge-platform",
+            headers={},
+        )
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        return (
+            url,
+            403,
+            "<title>Just a moment...</title>challenge-platform",
+            {},
+        )
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        allow_external_solver=False,
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=PlaywrightFetcher(settings, fetch_page=l3_page),
     ) as fetcher:
         with pytest.raises(ChallengeDetectedError):
             await fetcher.fetch("https://missav.ws/cn/a")

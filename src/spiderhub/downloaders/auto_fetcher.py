@@ -9,9 +9,11 @@ import httpx
 from spiderhub.challenges.detect import ChallengeDetectedError
 from spiderhub.core.settings import Settings
 from spiderhub.downloaders.base import FetchedResponse
+from spiderhub.downloaders.browser_factory import build_l3_fetcher
+from spiderhub.downloaders.browser_protocol import BrowserFetcher
 from spiderhub.downloaders.curl_cffi_fetcher import CurlCffiFetcher
+from spiderhub.downloaders.external_solver_fetcher import ExternalSolverFetcher
 from spiderhub.downloaders.httpx_fetcher import HttpxFetcher
-from spiderhub.downloaders.playwright_fetcher import PlaywrightFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +24,10 @@ def _is_robots_url(url: str) -> bool:
 
 
 class AutoFetcher:
-    """Sticky L1→L2→L3 upgrade on challenge (robots.txt never sticky-upgrades).
+    """Sticky L1→L2→L3→L4 upgrade on challenge (robots.txt never sticky-upgrades).
 
-    After the first successful L3 solve, stay on L3 for content. MissAV-style CF
-    often still blocks L2 even with cookies; leaving CDP/browser avoids a hang on
-    headless re-challenge waits.
+    After the first successful L3/L4 solve, stay on that level for content.
+    MissAV-style CF often still blocks L2 even with cookies.
     """
 
     def __init__(
@@ -35,16 +36,20 @@ class AutoFetcher:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         l2: CurlCffiFetcher | None = None,
-        l3: PlaywrightFetcher | None = None,
+        l3: BrowserFetcher | None = None,
+        l4: ExternalSolverFetcher | None = None,
     ) -> None:
         self._settings = settings
         self._l1 = HttpxFetcher(settings, transport=transport)
         self._l2 = l2 if l2 is not None else CurlCffiFetcher(settings)
-        self._l3 = l3 if l3 is not None else PlaywrightFetcher(settings)
+        self._l3 = l3 if l3 is not None else build_l3_fetcher(settings)
+        self._l4 = l4 if l4 is not None else ExternalSolverFetcher(settings)
         self._level = 1
         self._l2_entered = False
         self._l3_entered = False
+        self._l4_entered = False
         self._browser_session_ready = False
+        self._solver_session_ready = False
 
     async def __aenter__(self) -> AutoFetcher:
         await self._l1.__aenter__()
@@ -56,6 +61,9 @@ class AutoFetcher:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
+        if self._l4_entered:
+            await self._l4.__aexit__(exc_type, exc_val, exc_tb)
+            self._l4_entered = False
         if self._l3_entered:
             await self._l3.__aexit__(exc_type, exc_val, exc_tb)
             self._l3_entered = False
@@ -74,7 +82,13 @@ class AutoFetcher:
         if not self._l3_entered:
             await self._l3.__aenter__()
             self._l3_entered = True
-        self._level = 3
+        self._level = max(self._level, 3)
+
+    async def _ensure_l4(self) -> None:
+        if not self._l4_entered:
+            await self._l4.__aenter__()
+            self._l4_entered = True
+        self._level = 4
 
     async def _prepare_browser_content_session(self) -> None:
         if self._browser_session_ready:
@@ -88,31 +102,97 @@ class AutoFetcher:
         self._level = 3
         self._browser_session_ready = True
         logger.info(
-            "browser session ready; sticky L3 for content "
-            "(reuse one browser tab, skip L2 CF bounce)"
+            "browser session ready; sticky L3 for content engine=%s "
+            "(reuse one browser tab, skip L2 CF bounce)",
+            self._settings.browser_engine,
+        )
+
+    async def _prepare_solver_content_session(self) -> None:
+        if self._solver_session_ready:
+            return
+        cookies = await self._l4.export_cookies()
+        if cookies:
+            self._l1.set_cookies(cookies)
+            await self._ensure_l2()
+            self._l2.set_cookies(cookies)
+        self._level = 4
+        self._solver_session_ready = True
+        logger.info(
+            "external solver session ready; sticky L4 for content session=%s",
+            self._settings.external_solver_session,
         )
 
     async def _fetch_l3(self, url: str) -> FetchedResponse:
         await self._ensure_l3()
-        response = await self._l3.fetch(url)
+        try:
+            response = await self._l3.fetch(url)
+        except ChallengeDetectedError:
+            if not self._settings.allow_external_solver:
+                raise
+            logger.info(
+                "upgrade fetch L3->L4 engine=%s url=%s",
+                self._settings.browser_engine,
+                url,
+            )
+            return await self._fetch_l4(url)
         await self._prepare_browser_content_session()
         return response
 
+    async def _fetch_l4(self, url: str) -> FetchedResponse:
+        await self._ensure_l4()
+        response = await self._l4.fetch(url)
+        await self._prepare_solver_content_session()
+        return response
+
+    def _upgrade_after_l2(self, url: str, exc: ChallengeDetectedError) -> str:
+        """Return next hop label: l3, l4, or raise."""
+        if _is_robots_url(url) or not self._settings.allow_fetcher_upgrade:
+            raise exc
+        skip_browser = (
+            self._settings.allow_external_solver
+            and self._settings.external_solver_skip_browser
+        )
+        if skip_browser:
+            return "l4"
+        if self._settings.allow_browser:
+            return "l3"
+        if self._settings.allow_external_solver:
+            return "l4"
+        raise exc
+
     async def fetch(self, url: str) -> FetchedResponse:
+        if self._level >= 4:
+            return await self._l4.fetch(url)
         if self._level >= 3:
-            return await self._l3.fetch(url)
+            try:
+                return await self._l3.fetch(url)
+            except ChallengeDetectedError:
+                if not self._settings.allow_external_solver:
+                    raise
+                logger.info(
+                    "upgrade fetch L3->L4 sticky path engine=%s url=%s",
+                    self._settings.browser_engine,
+                    url,
+                )
+                return await self._fetch_l4(url)
         if self._level >= 2:
             try:
                 return await self._l2.fetch(url)
             except ChallengeDetectedError as exc:
-                if _is_robots_url(url) or not self._settings.allow_fetcher_upgrade:
-                    raise
-                if not self._settings.allow_browser:
-                    raise
+                hop = self._upgrade_after_l2(url, exc)
+                if hop == "l4":
+                    logger.info(
+                        "upgrade fetch L2->L4 reason=%s status=%s url=%s",
+                        exc.reason,
+                        exc.status_code,
+                        url,
+                    )
+                    return await self._fetch_l4(url)
                 logger.info(
-                    "upgrade fetch L2->L3 reason=%s status=%s url=%s",
+                    "upgrade fetch L2->L3 reason=%s status=%s engine=%s url=%s",
                     exc.reason,
                     exc.status_code,
+                    self._settings.browser_engine,
                     url,
                 )
                 return await self._fetch_l3(url)
@@ -132,12 +212,20 @@ class AutoFetcher:
             try:
                 return await self._l2.fetch(url)
             except ChallengeDetectedError as exc2:
-                if not self._settings.allow_browser:
-                    raise
+                hop = self._upgrade_after_l2(url, exc2)
+                if hop == "l4":
+                    logger.info(
+                        "upgrade fetch L2->L4 reason=%s status=%s url=%s",
+                        exc2.reason,
+                        exc2.status_code,
+                        url,
+                    )
+                    return await self._fetch_l4(url)
                 logger.info(
-                    "upgrade fetch L2->L3 reason=%s status=%s url=%s",
+                    "upgrade fetch L2->L3 reason=%s status=%s engine=%s url=%s",
                     exc2.reason,
                     exc2.status_code,
+                    self._settings.browser_engine,
                     url,
                 )
                 return await self._fetch_l3(url)

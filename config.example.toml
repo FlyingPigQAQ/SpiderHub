@@ -11,8 +11,16 @@ request_delay_seconds = 1.0
 allow_fetcher_upgrade = true
 allow_browser = true
 impersonate_target = "chrome"
+# L3: playwright | camoufox | patchright（设置 browser_cdp_url 时强制 playwright）
+browser_engine = "playwright"
 browser_challenge_wait_seconds = 15.0
 browser_headless = true
 browser_storage_state = ".spiderhub/storage_state.json"
 # browser_cdp_url = "http://127.0.0.1:9222"
 browser_user_data_dir = ".spiderhub/chrome-profile"
+# L4 FlareSolverr/Solverr（默认关闭；成功后 sticky）
+allow_external_solver = false
+external_solver_url = "http://127.0.0.1:8191/v1"
+external_solver_skip_browser = false
+external_solver_timeout_ms = 60000
+external_solver_session = "spiderhub"

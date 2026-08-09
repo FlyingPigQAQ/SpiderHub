@@ -17,6 +17,12 @@ dependencies = [
 [project.scripts]
 spiderhub = "spiderhub.cli:main"
 
+[project.optional-dependencies]
+stealth = [
+  "camoufox>=0.4",
+  "patchright>=1.50",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -46,6 +52,18 @@ python_version = "3.11"
 strict = true
 packages = ["spiderhub"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = [
+  "camoufox",
+  "camoufox.*",
+  "patchright",
+  "patchright.*",
+  "numpy",
+  "numpy.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
