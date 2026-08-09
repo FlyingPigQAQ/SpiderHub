@@ -76,7 +76,7 @@ uv run spiderhub run <spider_name> --start-url 'https://example.com/...' --max-p
 仅抓取元数据；需合规授权并遵守 robots。
 
 ```bash
-# 1. 建表（应用不会自动 CREATE TABLE）
+# 1. 建表（应用不会自动 CREATE TABLE；含 failed_urls 失败 URL 表）
 mysql -u ... < scripts/sql/missav_schema.sql
 
 # 2. 试跑（不写库）
