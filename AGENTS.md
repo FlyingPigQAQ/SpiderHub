@@ -31,7 +31,7 @@ SpiderHub 是基于 Python 的爬虫中枢（Crawler Hub）：统一管理多站
 | 校验 | `pydantic` v2（已引入） |
 | 落库 | `PyMySQL`（已引入；MySQL upsert pipeline） |
 | 日志 | 标准库 `logging` + 结构化字段；禁止 `print` 作为正式日志 |
-| 人工验证提醒 | 可选飞书 Open API 订阅 `ChallengeNeedsHuman`；默认关闭；密钥不入库 |
+| 飞书提醒 | 可选飞书 Open API 订阅 `ChallengeNeedsHuman` / `SpiderRunFinished`；默认关闭；密钥不入库；dry-run 不发完成提醒 |
 | 质量工具 | `ruff`（lint + format）、`mypy`、`pytest`、`pytest-asyncio` |
 | 配置 | 环境变量 + `.env.example` / `config.example.toml`；密钥不入库 |
 

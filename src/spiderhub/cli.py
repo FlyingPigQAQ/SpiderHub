@@ -6,14 +6,18 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from spiderhub.core.registry import discover_builtin_spiders, get_spider, list_spiders
-from spiderhub.core.runner import run_spider
+from spiderhub.core.runner import RunResult, run_spider
 from spiderhub.core.settings import load_settings
 from spiderhub.downloaders.auto_fetcher import AutoFetcher
+from spiderhub.events import SpiderRunFinished, publish
 from spiderhub.notifiers.feishu import setup_feishu_notifier
 from spiderhub.pipelines.mysql import MySQLPipeline
 from spiderhub.pipelines.null import NullPipeline
+
+_RUN_ERROR_MAX_LEN = 500
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +41,53 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit actress list pages (e.g. 1 = first page only)",
     )
     return parser
+
+
+def _run_status(result: RunResult) -> str:
+    if result.urls_failed == 0 and result.items_failed == 0:
+        return "success"
+    return "partial"
+
+
+def _format_run_error(exc: BaseException) -> str:
+    text = f"{type(exc).__name__}: {exc}"
+    if len(text) <= _RUN_ERROR_MAX_LEN:
+        return text
+    return text[: _RUN_ERROR_MAX_LEN - 3] + "..."
+
+
+async def _publish_run_finished(
+    *,
+    spider_name: str,
+    dry_run: bool,
+    result: RunResult | None = None,
+    error: str | None = None,
+) -> None:
+    if dry_run:
+        return
+    if error is not None:
+        status = "failed"
+        items_ok = result.items_ok if result is not None else 0
+        items_failed = result.items_failed if result is not None else 0
+        urls_failed = result.urls_failed if result is not None else 0
+    else:
+        assert result is not None
+        status = _run_status(result)
+        items_ok = result.items_ok
+        items_failed = result.items_failed
+        urls_failed = result.urls_failed
+    await publish(
+        SpiderRunFinished(
+            spider_name=spider_name,
+            status=status,
+            items_ok=items_ok,
+            items_failed=items_failed,
+            urls_failed=urls_failed,
+            error=error,
+            dry_run=dry_run,
+            at=datetime.now(UTC),
+        )
+    )
 
 
 async def _run_async(args: argparse.Namespace) -> int:
@@ -69,8 +120,18 @@ async def _run_async(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001
         logging.exception("run failed: %s", exc)
         print(f"run failed: {exc}", file=sys.stderr)
+        await _publish_run_finished(
+            spider_name=spider.name,
+            dry_run=args.dry_run,
+            error=_format_run_error(exc),
+        )
         return 2
 
+    await _publish_run_finished(
+        spider_name=spider.name,
+        dry_run=args.dry_run,
+        result=result,
+    )
     print(
         f"done items_ok={result.items_ok} items_failed={result.items_failed} "
         f"urls_failed={result.urls_failed}"

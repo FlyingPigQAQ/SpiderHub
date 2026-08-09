@@ -15,8 +15,14 @@ _bus: EventBus | None = None
 
 
 class EventBus:
-    def __init__(self, *, cooldown_seconds: float = 0.0) -> None:
+    def __init__(
+        self,
+        *,
+        cooldown_seconds: float = 0.0,
+        cooldown_types: frozenset[type[Any]] | None = None,
+    ) -> None:
         self._cooldown_seconds = max(0.0, float(cooldown_seconds))
+        self._cooldown_types = cooldown_types
         self._handlers: dict[type[Any], list[Handler]] = defaultdict(list)
         self._last_publish_at: dict[type[Any], float] = {}
 
@@ -43,7 +49,10 @@ class EventBus:
     async def publish(self, event: object) -> None:
         event_type = type(event)
         now = time.monotonic()
-        if self._cooldown_seconds > 0:
+        apply_cooldown = self._cooldown_seconds > 0 and (
+            self._cooldown_types is None or event_type in self._cooldown_types
+        )
+        if apply_cooldown:
             last = self._last_publish_at.get(event_type)
             if last is not None and (now - last) < self._cooldown_seconds:
                 logger.debug(
@@ -55,7 +64,8 @@ class EventBus:
         handlers = list(self._handlers.get(event_type, ()))
         if not handlers:
             return
-        self._last_publish_at[event_type] = now
+        if apply_cooldown:
+            self._last_publish_at[event_type] = now
         for handler in handlers:
             try:
                 await handler(event)

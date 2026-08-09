@@ -8,13 +8,18 @@ import httpx
 
 from spiderhub.core.settings import Settings
 from spiderhub.events.bus import EventBus, set_bus
-from spiderhub.events.types import ChallengeNeedsHuman
+from spiderhub.events.types import ChallengeNeedsHuman, SpiderRunFinished
 
 logger = logging.getLogger(__name__)
 
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
 _FEISHU_HTTP_TIMEOUT_SECONDS = 5.0
+_STATUS_LABELS = {
+    "success": "成功",
+    "partial": "部分失败",
+    "failed": "失败",
+}
 
 
 class FeishuNotifier:
@@ -87,6 +92,9 @@ class FeishuNotifier:
     async def on_challenge_needs_human(self, event: ChallengeNeedsHuman) -> None:
         await self.send_text(format_challenge_message(event))
 
+    async def on_spider_run_finished(self, event: SpiderRunFinished) -> None:
+        await self.send_text(format_run_finished_message(event))
+
 
 def feishu_configured(settings: Settings) -> bool:
     return all(
@@ -110,6 +118,22 @@ def format_challenge_message(event: ChallengeNeedsHuman) -> str:
     )
 
 
+def format_run_finished_message(event: SpiderRunFinished) -> str:
+    status_label = _STATUS_LABELS.get(event.status, event.status)
+    lines = [
+        "SpiderHub：爬虫完成",
+        f"Spider：{event.spider_name}",
+        f"状态：{status_label}",
+        (
+            f"items_ok={event.items_ok} items_failed={event.items_failed} "
+            f"urls_failed={event.urls_failed}"
+        ),
+    ]
+    if event.error:
+        lines.append(f"错误：{event.error}")
+    return "\n".join(lines)
+
+
 async def setup_feishu_notifier(
     settings: Settings,
     *,
@@ -120,7 +144,8 @@ async def setup_feishu_notifier(
         return None
 
     event_bus = bus or EventBus(
-        cooldown_seconds=settings.feishu_notify_cooldown_seconds
+        cooldown_seconds=settings.feishu_notify_cooldown_seconds,
+        cooldown_types=frozenset({ChallengeNeedsHuman}),
     )
     if bus is None:
         set_bus(event_bus)
@@ -129,5 +154,9 @@ async def setup_feishu_notifier(
     event_bus.subscribe(
         ChallengeNeedsHuman,
         notifier.on_challenge_needs_human,
+    )
+    event_bus.subscribe(
+        SpiderRunFinished,
+        notifier.on_spider_run_finished,
     )
     return notifier

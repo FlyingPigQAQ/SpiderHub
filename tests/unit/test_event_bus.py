@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from spiderhub.events.bus import EventBus, get_bus, set_bus
-from spiderhub.events.types import ChallengeNeedsHuman
+from spiderhub.events.types import ChallengeNeedsHuman, SpiderRunFinished
 
 
 @pytest.fixture(autouse=True)
@@ -83,6 +83,50 @@ async def test_handler_error_does_not_block_others() -> None:
         )
     )
     assert ok == ["https://example.com/ok"]
+
+
+@pytest.mark.asyncio
+async def test_cooldown_types_only_applies_to_listed_types() -> None:
+    bus = EventBus(
+        cooldown_seconds=600.0,
+        cooldown_types=frozenset({ChallengeNeedsHuman}),
+    )
+    challenge_calls = 0
+    finished_calls = 0
+
+    async def on_challenge(_event: ChallengeNeedsHuman) -> None:
+        nonlocal challenge_calls
+        challenge_calls += 1
+
+    async def on_finished(_event: SpiderRunFinished) -> None:
+        nonlocal finished_calls
+        finished_calls += 1
+
+    bus.subscribe(ChallengeNeedsHuman, on_challenge)
+    bus.subscribe(SpiderRunFinished, on_finished)
+
+    challenge = ChallengeNeedsHuman(
+        url="https://example.com/a",
+        engine="playwright",
+        wait_seconds=10.0,
+        at=datetime.now(UTC),
+    )
+    finished = SpiderRunFinished(
+        spider_name="demo",
+        status="success",
+        items_ok=1,
+        items_failed=0,
+        urls_failed=0,
+        error=None,
+        dry_run=False,
+        at=datetime.now(UTC),
+    )
+    await bus.publish(challenge)
+    await bus.publish(challenge)
+    await bus.publish(finished)
+    await bus.publish(finished)
+    assert challenge_calls == 1
+    assert finished_calls == 2
 
 
 @pytest.mark.asyncio
