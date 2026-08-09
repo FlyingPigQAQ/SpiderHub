@@ -223,10 +223,14 @@ class EventBus:
         self._handlers: dict[type[Any], list[Handler]] = defaultdict(list)
         self._last_publish_at: dict[type[Any], float] = {}
 
-    def subscribe(self, event_type: type[T], handler: Callable[[T], Awaitable[None]]) -> None:
+    def subscribe(
+        self, event_type: type[T], handler: Callable[[T], Awaitable[None]]
+    ) -> None:
         self._handlers[event_type].append(handler)  # type: ignore[arg-type]
 
-    def unsubscribe(self, event_type: type[T], handler: Callable[[T], Awaitable[None]]) -> None:
+    def unsubscribe(
+        self, event_type: type[T], handler: Callable[[T], Awaitable[None]]
+    ) -> None:
         handlers = self._handlers.get(event_type)
         if not handlers:
             return
@@ -435,8 +439,7 @@ async def setup_feishu_notifier(
     *,
     bus: EventBus | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
-) -> FeishuNotifier | None:
-    ...
+) -> FeishuNotifier | None: ...
 ```
 
 实现：
@@ -648,7 +651,9 @@ git commit -m "feat: add Feishu Open API challenge notifier"
 
 ```python
 @pytest.mark.asyncio
-async def test_wait_challenge_publishes_needs_human(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wait_challenge_publishes_needs_human(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from datetime import UTC, datetime
 
     published: list[object] = []

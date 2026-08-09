@@ -32,6 +32,20 @@ cp config.example.toml config.local.toml
 
 在 `.env` / `config.local.toml` 中填写 MySQL 账号等。完整键名见 [`.env.example`](.env.example) 与 [`config.example.toml`](config.example.toml)。
 
+### 飞书人工验证提醒（可选）
+
+SpiderHub 可在 L3 有头浏览器或 CDP 进入 Cloudflare 人工验证等待时发送一条飞书文本提醒。需先创建飞书企业自建应用、启用机器人能力，并开通 `im:message:send_as_bot`（或飞书文档中的等价权限），然后配置：
+
+```bash
+SPIDERHUB_FEISHU_APP_ID=cli_xxx
+SPIDERHUB_FEISHU_APP_SECRET=xxx
+SPIDERHUB_FEISHU_RECEIVE_ID_TYPE=open_id  # open_id | user_id | chat_id
+SPIDERHUB_FEISHU_RECEIVE_ID=ou_xxx
+SPIDERHUB_FEISHU_NOTIFY_COOLDOWN_SECONDS=600
+```
+
+默认冷却时间为 600 秒。以上接收方与凭证配置不完整时提醒保持关闭，不改变现有抓取行为；真实密钥只放在本地环境变量或未入库配置中。
+
 ## 质量检查
 
 ```bash

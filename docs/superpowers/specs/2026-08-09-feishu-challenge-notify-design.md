@@ -1,7 +1,7 @@
 # 飞书提醒：Cloudflare 人工验证（设计）
 
 日期：2026-08-09  
-状态：待实现
+状态：已落地
 
 ## 背景
 
@@ -60,9 +60,9 @@ L3 fetcher (_wait_challenge_clear)
 @dataclass(frozen=True, slots=True)
 class ChallengeNeedsHuman:
     url: str
-    engine: str          # playwright | camoufox | patchright
+    engine: str  # playwright | camoufox | patchright
     wait_seconds: float
-    at: datetime         # UTC
+    at: datetime  # UTC
 ```
 
 ### 总线 API（`src/spiderhub/events/bus.py`）
