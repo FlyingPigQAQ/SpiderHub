@@ -158,7 +158,6 @@ class CamoufoxFetcher:
         raise last_exc
 
     async def _wait_challenge_clear(self, page: Any, *, wait_s: float) -> None:
-        deadline = time.monotonic() + wait_s
         if self._interactive and not self._content_headless:
             logger.warning(
                 "Camoufox: 若出现 Cloudflare 验证页，请在窗口中完成 (最长 %.0fs)",
@@ -172,6 +171,7 @@ class CamoufoxFetcher:
                     at=datetime.now(UTC),
                 )
             )
+        deadline = time.monotonic() + wait_s
         while time.monotonic() < deadline:
             try:
                 title = await page.title()

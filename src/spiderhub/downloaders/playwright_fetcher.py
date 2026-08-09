@@ -257,7 +257,6 @@ class PlaywrightFetcher:
 
     async def _wait_challenge_clear(self, page: Any, *, wait_s: float) -> None:
         """Poll title/cookies/HTML without injecting wait_for_function into the page."""
-        deadline = time.monotonic() + wait_s
         if self._interactive and not self._content_headless:
             logger.warning(
                 "若出现 Cloudflare 验证页，请在浏览器窗口中手动完成验证 "
@@ -272,6 +271,7 @@ class PlaywrightFetcher:
                     at=datetime.now(UTC),
                 )
             )
+        deadline = time.monotonic() + wait_s
         while time.monotonic() < deadline:
             try:
                 title = await page.title()

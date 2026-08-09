@@ -192,13 +192,20 @@ async def test_wait_challenge_publishes_needs_human(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     published: list[object] = []
+    clock = 0.0
 
     async def fake_publish(event: object) -> None:
+        nonlocal clock
         published.append(event)
+        clock = 30.0
 
     monkeypatch.setattr(
         "spiderhub.downloaders.playwright_fetcher.publish",
         fake_publish,
+    )
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.time.monotonic",
+        lambda: clock,
     )
 
     class _FakePage:
@@ -206,8 +213,10 @@ async def test_wait_challenge_publishes_needs_human(
 
         def __init__(self) -> None:
             self.context = self
+            self.title_calls = 0
 
         async def title(self) -> str:
+            self.title_calls += 1
             return "ok"
 
         async def cookies(self) -> list[dict[str, str]]:
@@ -226,9 +235,11 @@ async def test_wait_challenge_publishes_needs_human(
     fetcher = PlaywrightFetcher(settings)
     fetcher._interactive = True
     fetcher._content_headless = False
-    await fetcher._wait_challenge_clear(_FakePage(), wait_s=5.0)
+    page = _FakePage()
+    await fetcher._wait_challenge_clear(page, wait_s=5.0)
 
     assert len(published) == 1
+    assert page.title_calls == 1
     event = published[0]
     assert isinstance(event, ChallengeNeedsHuman)
     assert event.url == "https://missav.ws/cn/x"

@@ -51,6 +51,18 @@ def test_format_challenge_message_contains_url_and_engine() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notifier_uses_short_dedicated_http_timeout() -> None:
+    settings = Settings(http_timeout_seconds=30.0)
+    notifier = FeishuNotifier(settings, transport=httpx.MockTransport(lambda _: None))
+
+    assert notifier._client.timeout.connect == 5.0
+    assert notifier._client.timeout.read == 5.0
+    assert notifier._client.timeout.write == 5.0
+    assert notifier._client.timeout.pool == 5.0
+    await notifier.aclose()
+
+
+@pytest.mark.asyncio
 async def test_send_text_fetches_token_and_posts_message() -> None:
     calls: list[httpx.Request] = []
 

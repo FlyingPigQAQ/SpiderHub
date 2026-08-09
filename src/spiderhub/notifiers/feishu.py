@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+_FEISHU_HTTP_TIMEOUT_SECONDS = 5.0
 
 
 class FeishuNotifier:
@@ -25,7 +26,7 @@ class FeishuNotifier:
     ) -> None:
         self._settings = settings
         self._client = httpx.AsyncClient(
-            timeout=settings.http_timeout_seconds,
+            timeout=_FEISHU_HTTP_TIMEOUT_SECONDS,
             transport=transport,
         )
         self._tenant_access_token: str | None = None
