@@ -23,7 +23,7 @@ class EventBus:
     def subscribe(
         self, event_type: type[T], handler: Callable[[T], Awaitable[None]]
     ) -> None:
-        self._handlers[event_type].append(handler)  # type: ignore[arg-type]
+        self._handlers[event_type].append(handler)
 
     def unsubscribe(
         self, event_type: type[T], handler: Callable[[T], Awaitable[None]]
@@ -32,7 +32,7 @@ class EventBus:
         if not handlers:
             return
         try:
-            handlers.remove(handler)  # type: ignore[arg-type]
+            handlers.remove(handler)
         except ValueError:
             return
 
