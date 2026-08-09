@@ -35,7 +35,11 @@ def is_transient_page_error(exc: BaseException) -> bool:
 
 
 def is_closed_target_error(exc: BaseException) -> bool:
-    """True when Playwright reports page/context/browser already closed."""
+    """True when Playwright reports page/context/browser closed or crashed.
+
+    Renderer crashes leave a dead shared tab; treat like a closed target so
+    fetchers can open a fresh page / reconnect and retry.
+    """
     msg = str(exc).lower()
     return any(
         needle in msg
@@ -46,5 +50,6 @@ def is_closed_target_error(exc: BaseException) -> bool:
             "context has been closed",
             "page has been closed",
             "browser/page closed",
+            "page crashed",
         )
     )

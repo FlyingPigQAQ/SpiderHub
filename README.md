@@ -196,7 +196,7 @@ SPIDERHUB_BROWSER_CHALLENGE_WAIT_SECONDS=180 \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
 
-CDP 模式下会复用同一标签翻页，而不是每页新建窗口。
+CDP 模式下：人工过验证后会把 Cookie 同步到 L2（`curl_cffi`），**后续内容页优先走 HTTP**，避免反复 `page.goto` 抢占 Chrome 焦点。若 L2 仍被挑战拦截，则回退并 sticky 在 L3（继续用该 Chrome 标签抓取）。
 
 ### L4：FlareSolverr / Solverr（默认关闭）
 

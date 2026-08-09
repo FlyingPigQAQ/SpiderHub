@@ -87,15 +87,14 @@ class _ParseFailSpider(Spider):
 
 
 class _FlakyClosedFetcher:
-    def __init__(self) -> None:
+    def __init__(self, error: str) -> None:
         self.calls = 0
+        self._error = error
 
     async def fetch(self, url: str) -> FetchedResponse:
         self.calls += 1
         if self.calls == 1:
-            raise RuntimeError(
-                "Page.goto: Target page, context or browser has been closed"
-            )
+            raise RuntimeError(self._error)
         return FetchedResponse(url=url, status_code=200, text="<html>ok</html>")
 
 
@@ -116,8 +115,15 @@ class _ClosedOnceSpider(Spider):
 
 
 @pytest.mark.asyncio
-async def test_runner_requeues_once_after_browser_closed() -> None:
-    fetcher = _FlakyClosedFetcher()
+@pytest.mark.parametrize(
+    "error",
+    [
+        "Page.goto: Target page, context or browser has been closed",
+        "Page.goto: Page crashed",
+    ],
+)
+async def test_runner_requeues_once_after_browser_closed(error: str) -> None:
+    fetcher = _FlakyClosedFetcher(error)
     result = await run_spider(
         _ClosedOnceSpider(),
         fetcher=fetcher,  # type: ignore[arg-type]

@@ -157,20 +157,24 @@ class CamoufoxFetcher:
         assert last_exc is not None
         raise last_exc
 
+    async def _notify_challenge_needs_human(self, page: Any, *, wait_s: float) -> None:
+        logger.warning(
+            "Camoufox: 检测到 Cloudflare 验证页，请在窗口中完成 (最长 %.0fs) url=%s",
+            wait_s,
+            page.url,
+        )
+        await publish(
+            ChallengeNeedsHuman(
+                url=str(page.url),
+                engine="camoufox",
+                wait_seconds=wait_s,
+                at=datetime.now(UTC),
+            )
+        )
+
     async def _wait_challenge_clear(self, page: Any, *, wait_s: float) -> None:
-        if self._interactive and not self._content_headless:
-            logger.warning(
-                "Camoufox: 若出现 Cloudflare 验证页，请在窗口中完成 (最长 %.0fs)",
-                wait_s,
-            )
-            await publish(
-                ChallengeNeedsHuman(
-                    url=str(page.url),
-                    engine="camoufox",
-                    wait_seconds=wait_s,
-                    at=datetime.now(UTC),
-                )
-            )
+        can_notify = self._interactive and not self._content_headless
+        notified = False
         deadline = time.monotonic() + wait_s
         while time.monotonic() < deadline:
             try:
@@ -178,6 +182,9 @@ class CamoufoxFetcher:
                 cookies = await page.context.cookies()
                 cookie_names = {c.get("name", "") for c in cookies}
                 if is_challenge_title(title):
+                    if can_notify and not notified:
+                        notified = True
+                        await self._notify_challenge_needs_human(page, wait_s=wait_s)
                     await asyncio.sleep(0.5)
                     continue
                 if "cf_clearance" in cookie_names:
@@ -189,6 +196,9 @@ class CamoufoxFetcher:
                     body_html=body_html,
                 ):
                     return
+                if can_notify and not notified:
+                    notified = True
+                    await self._notify_challenge_needs_human(page, wait_s=wait_s)
             except Exception as exc:  # noqa: BLE001
                 if is_transient_page_error(exc):
                     await asyncio.sleep(0.5)

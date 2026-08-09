@@ -90,7 +90,7 @@ async def test_auto_fetcher_upgrades_l2_to_l3() -> None:
 
 @pytest.mark.asyncio
 async def test_auto_fetcher_stays_on_l3_after_challenge() -> None:
-    """After browser challenge solve, later pages stay on L3 (not L2 bounce)."""
+    """Without CDP, after browser solve later pages stay on L3 (not L2 bounce)."""
     calls = {"l2": 0, "l3": 0}
 
     def l1_handler(request: httpx.Request) -> httpx.Response:
@@ -151,6 +151,143 @@ async def test_auto_fetcher_stays_on_l3_after_challenge() -> None:
     assert "upgraded-l3" in second.text
     assert calls["l3"] == 2
     assert calls["l2"] == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_cdp_prefers_l2_after_browser() -> None:
+    """CDP: after L3 solve + cookies, later pages prefer L2 (Chrome stays idle)."""
+    calls = {"l2": 0, "l3": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        calls["l2"] += 1
+        if calls["l2"] == 1:
+            return SimpleNamespace(
+                url=url,
+                status_code=403,
+                text="<title>Just a moment...</title>challenge-platform",
+                headers={},
+            )
+        return SimpleNamespace(
+            url=url,
+            status_code=200,
+            text=f"<html>l2-with-cookies {url}</html>",
+            headers={},
+        )
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return url, 200, f"<html>upgraded-l3 {url}</html>", {}
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        browser_cdp_url="http://127.0.0.1:9222",
+    )
+    l3 = PlaywrightFetcher(settings, fetch_page=l3_page)
+
+    async def fake_export_cookies() -> list[dict[str, str]]:
+        return [
+            {
+                "name": "cf_clearance",
+                "value": "token",
+                "domain": ".missav.ws",
+                "path": "/",
+            }
+        ]
+
+    async def noop_prefer_headless() -> None:
+        raise AssertionError("CDP HTTP content path should not switch headless")
+
+    l3.export_cookies = fake_export_cookies  # type: ignore[method-assign]
+    l3.prefer_headless_for_content = noop_prefer_headless  # type: ignore[method-assign]
+
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=l3,
+    ) as fetcher:
+        first = await fetcher.fetch("https://missav.ws/cn/a")
+        second = await fetcher.fetch("https://missav.ws/cn/b")
+
+    assert "upgraded-l3" in first.text
+    assert "l2-with-cookies" in second.text
+    assert calls["l3"] == 1
+    assert calls["l2"] == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_cdp_falls_back_sticky_l3_on_l2_challenge() -> None:
+    calls = {"l2": 0, "l3": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<title>Just a moment...</title>challenge-platform",
+            request=request,
+        )
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        calls["l2"] += 1
+        return SimpleNamespace(
+            url=url,
+            status_code=403,
+            text="<title>Just a moment...</title>challenge-platform",
+            headers={},
+        )
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return url, 200, f"<html>upgraded-l3 {url}</html>", {}
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        browser_cdp_url="http://127.0.0.1:9222",
+    )
+    l3 = PlaywrightFetcher(settings, fetch_page=l3_page)
+
+    async def fake_export_cookies() -> list[dict[str, str]]:
+        return [
+            {
+                "name": "cf_clearance",
+                "value": "token",
+                "domain": ".missav.ws",
+                "path": "/",
+            }
+        ]
+
+    l3.export_cookies = fake_export_cookies  # type: ignore[method-assign]
+
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=l3,
+    ) as fetcher:
+        first = await fetcher.fetch("https://missav.ws/cn/a")
+        second = await fetcher.fetch("https://missav.ws/cn/b")
+        third = await fetcher.fetch("https://missav.ws/cn/c")
+
+    assert "upgraded-l3" in first.text
+    assert "upgraded-l3" in second.text
+    assert "upgraded-l3" in third.text
+    # a: L2 fail -> L3; b: L2 fail -> abandon sticky L3; c: sticky L3 only
+    assert calls["l3"] == 3
+    assert calls["l2"] == 2
 
 
 @pytest.mark.asyncio

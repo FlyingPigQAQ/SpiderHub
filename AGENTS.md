@@ -82,7 +82,7 @@ SpiderHub/
 
 - **挑战检测**：识别 Cloudflare / 同类挑战页、403/503 + 特征正文、等待室等，并输出明确错误类型（勿当普通空页）。
 - **自动升级**：同一请求可按策略从 L1 升到 L2/L3/L4；升级原因写入日志与指标。
-- **会话复用**：挑战通过后 sticky 留在 L3 或 L4；CDP 复用同一标签抓内容（不切 headless，以免再次卡 CF）。Cookie 仍写入 L1/L2 备用；CDP 场景以浏览器会话为准。
+- **会话复用**：挑战通过后默认 sticky 留在 L3 或 L4。CDP：过验证后 Cookie 同步到 L1/L2，内容优先走 L2（避免反复 `goto` 抢焦点）；若 L2 仍挑战则回退并 sticky L3（不切 headless）。
 - **代理策略**：按 `allowed_domains` / Spider 配置绑定代理池；失败时区分「代理差」与「挑战未通过」。
 - **站点策略声明**：Spider 元数据可声明 `fetch_mode`（`http` / `impersonate` / `browser` / `auto`）与是否允许升维。
 - **可关闭**：全局与 per-spider 都能禁用浏览器/外部解锁路径，便于合规与排障。

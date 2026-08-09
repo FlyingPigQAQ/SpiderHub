@@ -84,11 +84,19 @@ def test_is_closed_target_error() -> None:
     assert is_closed_target_error(
         RuntimeError("browser/page closed during challenge wait")
     )
+    assert is_closed_target_error(RuntimeError("Page.goto: Page crashed"))
     assert not is_closed_target_error(RuntimeError("timeout 30000ms exceeded"))
 
 
 @pytest.mark.asyncio
-async def test_playwright_recovers_closed_page_and_retries() -> None:
+@pytest.mark.parametrize(
+    "goto_error",
+    [
+        "Page.goto: Target page, context or browser has been closed",
+        "Page.goto: Page crashed",
+    ],
+)
+async def test_playwright_recovers_dead_page_and_retries(goto_error: str) -> None:
     class _FakePage:
         url = "https://missav.ws/cn/x"
 
@@ -98,9 +106,7 @@ async def test_playwright_recovers_closed_page_and_retries() -> None:
 
         async def goto(self, *_args: object, **_kwargs: object) -> object:
             if self._fail_goto:
-                raise RuntimeError(
-                    "Page.goto: Target page, context or browser has been closed"
-                )
+                raise RuntimeError(goto_error)
 
             class _Resp:
                 status = 200
@@ -131,7 +137,7 @@ async def test_playwright_recovers_closed_page_and_retries() -> None:
 
         async def new_page(self) -> _FakePage:
             self.pages_created += 1
-            # Replacement tab after the closed shared page should succeed.
+            # Replacement tab after the dead shared page should succeed.
             return _FakePage(fail_goto=False)
 
         async def storage_state(self, **_kwargs: object) -> None:
@@ -188,16 +194,18 @@ async def test_wait_challenge_clear_retries_navigation_errors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_wait_challenge_publishes_needs_human(
+async def test_wait_challenge_publishes_needs_human_only_when_detected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     published: list[object] = []
     clock = 0.0
 
     async def fake_publish(event: object) -> None:
-        nonlocal clock
         published.append(event)
-        clock = 30.0
+
+    async def fake_sleep(seconds: float) -> None:
+        nonlocal clock
+        clock += seconds
 
     monkeypatch.setattr(
         "spiderhub.downloaders.playwright_fetcher.publish",
@@ -206,6 +214,10 @@ async def test_wait_challenge_publishes_needs_human(
     monkeypatch.setattr(
         "spiderhub.downloaders.playwright_fetcher.time.monotonic",
         lambda: clock,
+    )
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.asyncio.sleep",
+        fake_sleep,
     )
 
     class _FakePage:
@@ -217,13 +229,13 @@ async def test_wait_challenge_publishes_needs_human(
 
         async def title(self) -> str:
             self.title_calls += 1
-            return "ok"
+            return "Just a moment..."
 
         async def cookies(self) -> list[dict[str, str]]:
-            return [{"name": "cf_clearance", "value": "1"}]
+            return []
 
         async def content(self) -> str:
-            return "<html>ok</html>"
+            return "<html><title>Just a moment...</title></html>"
 
         async def wait_for_load_state(self, *_a: object, **_k: object) -> None:
             return None
@@ -239,7 +251,7 @@ async def test_wait_challenge_publishes_needs_human(
     await fetcher._wait_challenge_clear(page, wait_s=5.0)
 
     assert len(published) == 1
-    assert page.title_calls == 1
+    assert page.title_calls >= 1
     event = published[0]
     assert isinstance(event, ChallengeNeedsHuman)
     assert event.url == "https://missav.ws/cn/x"
@@ -248,7 +260,7 @@ async def test_wait_challenge_publishes_needs_human(
 
 
 @pytest.mark.asyncio
-async def test_wait_challenge_skips_publish_when_headless(
+async def test_wait_challenge_skips_publish_when_page_already_clear(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     published: list[object] = []
@@ -268,13 +280,71 @@ async def test_wait_challenge_skips_publish_when_headless(
             self.context = self
 
         async def title(self) -> str:
-            return "ok"
+            return "北野未奈"
 
         async def cookies(self) -> list[dict[str, str]]:
             return [{"name": "cf_clearance", "value": "1"}]
 
         async def content(self) -> str:
-            return "<html>ok</html>"
+            return "<html><title>北野未奈</title><body>ok</body></html>"
+
+        async def wait_for_load_state(self, *_a: object, **_k: object) -> None:
+            return None
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        browser_challenge_wait_seconds=5.0,
+    )
+    fetcher = PlaywrightFetcher(settings)
+    # CDP / headed keep this path for the whole crawl.
+    fetcher._interactive = True
+    fetcher._content_headless = False
+    await fetcher._wait_challenge_clear(_FakePage(), wait_s=5.0)
+
+    assert published == []
+
+
+@pytest.mark.asyncio
+async def test_wait_challenge_skips_publish_when_headless(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    published: list[object] = []
+    clock = 0.0
+
+    async def fake_publish(event: object) -> None:
+        published.append(event)
+
+    async def fake_sleep(seconds: float) -> None:
+        nonlocal clock
+        clock += seconds
+
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.publish",
+        fake_publish,
+    )
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.time.monotonic",
+        lambda: clock,
+    )
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.asyncio.sleep",
+        fake_sleep,
+    )
+
+    class _FakePage:
+        url = "https://missav.ws/cn/x"
+
+        def __init__(self) -> None:
+            self.context = self
+
+        async def title(self) -> str:
+            return "Just a moment..."
+
+        async def cookies(self) -> list[dict[str, str]]:
+            return []
+
+        async def content(self) -> str:
+            return "<html><title>Just a moment...</title></html>"
 
         async def wait_for_load_state(self, *_a: object, **_k: object) -> None:
             return None

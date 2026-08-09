@@ -26,8 +26,11 @@ def _is_robots_url(url: str) -> bool:
 class AutoFetcher:
     """Sticky L1→L2→L3→L4 upgrade on challenge (robots.txt never sticky-upgrades).
 
-    After the first successful L3/L4 solve, stay on that level for content.
-    MissAV-style CF often still blocks L2 even with cookies.
+    Default: after the first successful L3/L4 solve, stay on that level.
+
+    CDP special-case: after L3 exports cookies, prefer L2 for content so the
+    attached Chrome is not navigated on every URL (avoids focus stealing).
+    If L2 still hits a challenge, abandon HTTP content and sticky L3.
     """
 
     def __init__(
@@ -50,6 +53,8 @@ class AutoFetcher:
         self._l4_entered = False
         self._browser_session_ready = False
         self._solver_session_ready = False
+        self._prefer_http_after_browser = bool(settings.browser_cdp_url.strip())
+        self._http_content_abandoned = False
 
     async def __aenter__(self) -> AutoFetcher:
         await self._l1.__aenter__()
@@ -90,22 +95,45 @@ class AutoFetcher:
             self._l4_entered = True
         self._level = 4
 
+    async def _sync_browser_cookies_to_http(self) -> None:
+        cookies = await self._l3.export_cookies()
+        if not cookies:
+            return
+        self._l1.set_cookies(cookies)
+        await self._ensure_l2()
+        self._l2.set_cookies(cookies)
+
     async def _prepare_browser_content_session(self) -> None:
         if self._browser_session_ready:
+            await self._sync_browser_cookies_to_http()
             return
-        cookies = await self._l3.export_cookies()
-        if cookies:
-            self._l1.set_cookies(cookies)
-            await self._ensure_l2()
-            self._l2.set_cookies(cookies)
+        await self._sync_browser_cookies_to_http()
+        self._browser_session_ready = True
+        if self._prefer_http_after_browser and not self._http_content_abandoned:
+            # Keep L3 connected for re-upgrade, but stop navigating Chrome.
+            self._level = 2
+            logger.info(
+                "browser session ready; prefer L2 for content after CDP "
+                "(cookies synced; Chrome idle unless L2 challenges again)"
+            )
+            return
         await self._l3.prefer_headless_for_content()
         self._level = 3
-        self._browser_session_ready = True
         logger.info(
             "browser session ready; sticky L3 for content engine=%s "
             "(reuse one browser tab, skip L2 CF bounce)",
             self._settings.browser_engine,
         )
+
+    async def _abandon_http_content_for_browser(self, url: str) -> FetchedResponse:
+        """L2 still challenged after CDP cookies — sticky L3 for the rest."""
+        self._http_content_abandoned = True
+        self._level = 3
+        logger.info(
+            "L2 still challenged after CDP cookies; sticky L3 for content url=%s",
+            url,
+        )
+        return await self._fetch_l3(url)
 
     async def _prepare_solver_content_session(self) -> None:
         if self._solver_session_ready:
@@ -179,6 +207,12 @@ class AutoFetcher:
             try:
                 return await self._l2.fetch(url)
             except ChallengeDetectedError as exc:
+                if (
+                    self._prefer_http_after_browser
+                    and self._browser_session_ready
+                    and not self._http_content_abandoned
+                ):
+                    return await self._abandon_http_content_for_browser(url)
                 hop = self._upgrade_after_l2(url, exc)
                 if hop == "l4":
                     logger.info(

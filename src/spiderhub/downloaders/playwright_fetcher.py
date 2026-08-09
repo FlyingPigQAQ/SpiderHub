@@ -255,22 +255,26 @@ class PlaywrightFetcher:
         assert last_exc is not None
         raise last_exc
 
+    async def _notify_challenge_needs_human(self, page: Any, *, wait_s: float) -> None:
+        logger.warning(
+            "检测到 Cloudflare 验证页，请在浏览器窗口中手动完成验证 "
+            "(最长等待 %.0fs) url=%s",
+            wait_s,
+            page.url,
+        )
+        await publish(
+            ChallengeNeedsHuman(
+                url=str(page.url),
+                engine="playwright",
+                wait_seconds=wait_s,
+                at=datetime.now(UTC),
+            )
+        )
+
     async def _wait_challenge_clear(self, page: Any, *, wait_s: float) -> None:
         """Poll title/cookies/HTML without injecting wait_for_function into the page."""
-        if self._interactive and not self._content_headless:
-            logger.warning(
-                "若出现 Cloudflare 验证页，请在浏览器窗口中手动完成验证 "
-                "(最长等待 %.0fs)",
-                wait_s,
-            )
-            await publish(
-                ChallengeNeedsHuman(
-                    url=str(page.url),
-                    engine="playwright",
-                    wait_seconds=wait_s,
-                    at=datetime.now(UTC),
-                )
-            )
+        can_notify = self._interactive and not self._content_headless
+        notified = False
         deadline = time.monotonic() + wait_s
         while time.monotonic() < deadline:
             try:
@@ -278,6 +282,9 @@ class PlaywrightFetcher:
                 cookies = await page.context.cookies()
                 cookie_names = {c.get("name", "") for c in cookies}
                 if is_challenge_title(title):
+                    if can_notify and not notified:
+                        notified = True
+                        await self._notify_challenge_needs_human(page, wait_s=wait_s)
                     await asyncio.sleep(0.5)
                     continue
                 if "cf_clearance" in cookie_names:
@@ -289,9 +296,13 @@ class PlaywrightFetcher:
                     body_html=body_html,
                 ):
                     return
+                # Body still looks like an interstitial; ask for human help once.
+                if can_notify and not notified:
+                    notified = True
+                    await self._notify_challenge_needs_human(page, wait_s=wait_s)
             except Exception as exc:  # noqa: BLE001
                 msg = str(exc).lower()
-                if "closed" in msg or "target page" in msg:
+                if "closed" in msg or "target page" in msg or "page crashed" in msg:
                     raise RuntimeError(
                         "browser/page closed during challenge wait; "
                         "请勿关闭验证窗口，或改用 SPIDERHUB_BROWSER_CDP_URL"
