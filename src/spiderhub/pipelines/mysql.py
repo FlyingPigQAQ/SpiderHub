@@ -13,6 +13,7 @@ from spiderhub.models.items import Actress, Work
 
 logger = logging.getLogger(__name__)
 ConnectFn = Callable[..., Connection]
+_ERR_MSG_MAX = 1024
 
 
 def upsert_actress_sql(actress: Actress) -> tuple[str, tuple[object, ...]]:
@@ -74,6 +75,27 @@ def upsert_work_sql(work: Work) -> tuple[str, tuple[object, ...]]:
         work.source,
     )
     return sql, params
+
+
+def upsert_failed_url_sql(
+    *,
+    url: str,
+    spider_name: str,
+    error_type: str,
+    error_message: str,
+) -> tuple[str, tuple[object, ...]]:
+    sql = """
+    INSERT INTO failed_urls (
+      url, spider_name, error_type, error_message, fail_count, last_failed_at
+    ) VALUES (%s,%s,%s,%s,1,CURRENT_TIMESTAMP)
+    ON DUPLICATE KEY UPDATE
+      spider_name=VALUES(spider_name),
+      error_type=VALUES(error_type),
+      error_message=VALUES(error_message),
+      fail_count=fail_count+1,
+      last_failed_at=CURRENT_TIMESTAMP
+    """
+    return sql, (url, spider_name, error_type, error_message[:_ERR_MSG_MAX])
 
 
 def _upsert_tag(cursor: Any, name: str, source: str) -> int:
@@ -180,3 +202,42 @@ class MySQLPipeline:
 
     async def process_item(self, item: Actress | Work) -> None:
         await asyncio.to_thread(self._process_sync, item)
+
+    def _record_failed_url_sync(
+        self,
+        *,
+        url: str,
+        spider_name: str,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        assert self._conn is not None
+        try:
+            with self._conn.cursor() as cursor:
+                sql, params = upsert_failed_url_sql(
+                    url=url,
+                    spider_name=spider_name,
+                    error_type=error_type,
+                    error_message=error_message,
+                )
+                cursor.execute(sql, params)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    async def record_failed_url(
+        self,
+        *,
+        url: str,
+        spider_name: str,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        await asyncio.to_thread(
+            self._record_failed_url_sync,
+            url=url,
+            spider_name=spider_name,
+            error_type=error_type,
+            error_message=error_message,
+        )
