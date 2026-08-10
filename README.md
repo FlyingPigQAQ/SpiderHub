@@ -30,7 +30,7 @@ cp .env.example .env
 cp config.example.toml config.local.toml
 ```
 
-在 `.env` / `config.local.toml` 中填写 MySQL 账号等。完整键名见 [`.env.example`](.env.example) 与 [`config.example.toml`](config.example.toml)。
+在 `.env` / `config.local.toml` 中填写 MySQL 账号等。完整键名见 `[.env.example](.env.example)` 与 `[config.example.toml](config.example.toml)`。
 
 ### 飞书提醒（可选）
 
@@ -55,6 +55,8 @@ uv run mypy src
 uv run pytest
 ```
 
+
+
 ## CLI 用法
 
 ```bash
@@ -70,6 +72,8 @@ uv run spiderhub run <spider_name> --dry-run
 # 覆盖起始 URL / 限制列表页数
 uv run spiderhub run <spider_name> --start-url 'https://example.com/...' --max-pages 1
 ```
+
+
 
 ## MissAV 女优爬虫
 
@@ -97,6 +101,8 @@ uv run spiderhub run missav_actress \
 
 ---
 
+
+
 ## Fetcher 升维用法（L1 → L2 → L3 → L4）
 
 默认路径：
@@ -108,12 +114,16 @@ uv run spiderhub run missav_actress \
 
 `robots.txt` 永不 sticky 升维。可用开关关闭任一层：
 
-| 环境变量 | 默认 | 作用 |
-|----------|------|------|
-| `SPIDERHUB_ALLOW_FETCHER_UPGRADE` | `true` | 关闭后遇挑战直接抛错，不升维 |
-| `SPIDERHUB_ALLOW_BROWSER` | `true` | 禁止升到 L3 |
-| `SPIDERHUB_ALLOW_EXTERNAL_SOLVER` | `false` | 启用 L4 |
+
+| 环境变量                                     | 默认      | 作用                         |
+| ---------------------------------------- | ------- | -------------------------- |
+| `SPIDERHUB_ALLOW_FETCHER_UPGRADE`        | `true`  | 关闭后遇挑战直接抛错，不升维             |
+| `SPIDERHUB_ALLOW_BROWSER`                | `true`  | 禁止升到 L3                    |
+| `SPIDERHUB_ALLOW_EXTERNAL_SOLVER`        | `false` | 启用 L4                      |
 | `SPIDERHUB_EXTERNAL_SOLVER_SKIP_BROWSER` | `false` | `true` 时 L2 挑战后跳过 L3 直奔 L4 |
+
+
+
 
 ### 关闭升维 / 仅用 HTTP
 
@@ -127,12 +137,16 @@ SPIDERHUB_ALLOW_BROWSER=false \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
 
+
+
 ### L2：curl_cffi 指纹目标
 
 ```bash
 SPIDERHUB_IMPERSONATE_TARGET=chrome \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
+
+
 
 ### L3：Playwright（默认）
 
@@ -153,6 +167,8 @@ SPIDERHUB_BROWSER_CHALLENGE_WAIT_SECONDS=180 \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
 
+
+
 ### L3：Camoufox
 
 需先 `uv sync --extra stealth && uv run python -m camoufox fetch`。
@@ -162,6 +178,8 @@ SPIDERHUB_BROWSER_ENGINE=camoufox \
 SPIDERHUB_BROWSER_HEADLESS=true \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
+
+
 
 ### L3：Patchright
 
@@ -179,6 +197,8 @@ uv run spiderhub run missav_actress --dry-run --max-pages 1
 - 设置了 `SPIDERHUB_BROWSER_CDP_URL` 时**强制**走 Playwright CDP，忽略 `browser_engine`。
 - 会话默认写入 `.spiderhub/storage_state.json`（已 gitignore）。
 
+
+
 ### L3：本机 Chrome CDP（人工过 Cloudflare，推荐）
 
 **不要用 Playwright 直接弹窗勾选**（常被判定为自动化，勾选后会反复刷新）。推荐手动启动本机 Chrome 开远程调试，再让 SpiderHub 通过 CDP 接入；过验证后继续用同一标签抓内容（不切 headless，避免再次卡 CF）。
@@ -189,6 +209,13 @@ mkdir -p .spiderhub/chrome-profile
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 \
   --user-data-dir="$PWD/.spiderhub/chrome-profile"
+
+mkdir -p .spiderhub/firefox-profile
+firefox --remote-debugging-port=9222 \
+        --profile "$PWD/.spiderhub/firefox-profile" \
+        --no-first-run \
+        --no-default-browser-check \
+        --disable-extensions
 
 # 终端 2：连接 CDP 并拉长挑战等待
 SPIDERHUB_BROWSER_CDP_URL=http://127.0.0.1:9222 \
@@ -230,6 +257,8 @@ SPIDERHUB_EXTERNAL_SOLVER_URL=http://127.0.0.1:8191/v1 \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
 
+
+
 ### 用 toml 配置同一套能力
 
 `config.local.toml` 示例片段：
@@ -252,4 +281,4 @@ external_solver_timeout_ms = 60000
 external_solver_session = "spiderhub"
 ```
 
-等价环境变量见 [`.env.example`](.env.example)。
+等价环境变量见 `[.env.example](.env.example)`。

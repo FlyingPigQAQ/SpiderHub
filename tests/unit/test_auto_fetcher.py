@@ -291,6 +291,151 @@ async def test_auto_fetcher_cdp_falls_back_sticky_l3_on_l2_challenge() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_fetcher_cdp_upgrades_l1_connect_error_to_l3() -> None:
+    calls = {"l3": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("", request=request)
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del url, kwargs
+        raise AssertionError("CDP ConnectError path should skip L2")
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return url, 200, "<html>cdp-after-connect-error</html>", {}
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        browser_cdp_url="http://127.0.0.1:9222",
+    )
+    l3 = PlaywrightFetcher(settings, fetch_page=l3_page)
+
+    async def fake_export_cookies() -> list[dict[str, str]]:
+        return []
+
+    l3.export_cookies = fake_export_cookies  # type: ignore[method-assign]
+
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=l3,
+    ) as fetcher:
+        resp = await fetcher.fetch("https://missav.ws/cn/a")
+
+    assert "cdp-after-connect-error" in resp.text
+    assert calls["l3"] == 1
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_connect_error_without_cdp_reraises() -> None:
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("", request=request)
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        browser_cdp_url="",
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+    ) as fetcher:
+        with pytest.raises(httpx.ConnectError):
+            await fetcher.fetch("https://missav.ws/cn/a")
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_cdp_connect_error_robots_does_not_upgrade() -> None:
+    calls = {"l3": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("", request=request)
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return url, 200, "<html>should-not</html>", {}
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        browser_cdp_url="http://127.0.0.1:9222",
+    )
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l3=PlaywrightFetcher(settings, fetch_page=l3_page),
+    ) as fetcher:
+        with pytest.raises(httpx.ConnectError):
+            await fetcher.fetch("https://missav.ws/robots.txt")
+    assert calls["l3"] == 0
+
+
+@pytest.mark.asyncio
+async def test_auto_fetcher_cdp_l2_connect_error_abandons_to_sticky_l3() -> None:
+    """After CDP session prefers L2, L2 ConnectError should sticky L3 (HTTP dead)."""
+    calls = {"l2": 0, "l3": 0}
+
+    def l1_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("", request=request)
+
+    async def l2_get(url: str, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        calls["l2"] += 1
+        raise httpx.ConnectError("", request=httpx.Request("GET", url))
+
+    async def l3_page(url: str) -> tuple[str, int, str, dict[str, str]]:
+        calls["l3"] += 1
+        return url, 200, f"<html>sticky-l3 {url}</html>", {}
+
+    settings = Settings(
+        request_delay_seconds=0.0,
+        http_max_retries=1,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+        browser_cdp_url="http://127.0.0.1:9222",
+    )
+    l3 = PlaywrightFetcher(settings, fetch_page=l3_page)
+
+    async def fake_export_cookies() -> list[dict[str, str]]:
+        return [
+            {
+                "name": "cf_clearance",
+                "value": "token",
+                "domain": ".missav.ws",
+                "path": "/",
+            }
+        ]
+
+    l3.export_cookies = fake_export_cookies  # type: ignore[method-assign]
+
+    async with AutoFetcher(
+        settings,
+        transport=httpx.MockTransport(l1_handler),
+        l2=CurlCffiFetcher(settings, get=l2_get),
+        l3=l3,
+    ) as fetcher:
+        first = await fetcher.fetch("https://missav.ws/cn/a")
+        second = await fetcher.fetch("https://missav.ws/cn/b")
+        third = await fetcher.fetch("https://missav.ws/cn/c")
+
+    assert "sticky-l3" in first.text
+    assert "sticky-l3" in second.text
+    assert "sticky-l3" in third.text
+    # a: L1 ConnectError -> L3; b: prefer L2 ConnectError -> sticky L3; c: sticky L3
+    assert calls["l3"] == 3
+    assert calls["l2"] == 1
+
+
+@pytest.mark.asyncio
 async def test_auto_fetcher_robots_does_not_sticky_upgrade() -> None:
     calls = {"l1": 0, "l2": 0}
 

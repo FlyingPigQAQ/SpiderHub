@@ -30,7 +30,9 @@ class AutoFetcher:
 
     CDP special-case: after L3 exports cookies, prefer L2 for content so the
     attached Chrome is not navigated on every URL (avoids focus stealing).
-    If L2 still hits a challenge, abandon HTTP content and sticky L3.
+    If L2 still hits a challenge (or ConnectError / other HTTP failure), abandon
+    HTTP content and sticky L3. With CDP configured, L1 httpx.ConnectError also
+    upgrades to L3 (HTTP may be RST while attached Chrome still works).
     """
 
     def __init__(
@@ -188,6 +190,27 @@ class AutoFetcher:
             return "l4"
         raise exc
 
+    def _can_upgrade_connect_error_to_l3(self, url: str) -> bool:
+        """CDP-only: HTTP clients may be RST while attached Chrome still works."""
+        return (
+            self._prefer_http_after_browser
+            and self._settings.allow_fetcher_upgrade
+            and self._settings.allow_browser
+            and not _is_robots_url(url)
+        )
+
+    async def _upgrade_connect_error_to_l3(
+        self, url: str, *, from_level: str, exc: httpx.ConnectError
+    ) -> FetchedResponse:
+        logger.info(
+            "upgrade fetch %s->L3 reason=connect_error err=%r engine=%s url=%s",
+            from_level,
+            str(exc) or type(exc).__name__,
+            self._settings.browser_engine,
+            url,
+        )
+        return await self._fetch_l3(url)
+
     async def fetch(self, url: str) -> FetchedResponse:
         if self._level >= 4:
             return await self._l4.fetch(url)
@@ -230,6 +253,28 @@ class AutoFetcher:
                     url,
                 )
                 return await self._fetch_l3(url)
+            except Exception as exc:
+                # After CDP cookie sync, L2 may fail with curl errors (not httpx).
+                if (
+                    self._prefer_http_after_browser
+                    and self._browser_session_ready
+                    and not self._http_content_abandoned
+                    and not _is_robots_url(url)
+                ):
+                    logger.info(
+                        "L2 failed after CDP cookies; sticky L3 url=%s err=%r",
+                        url,
+                        str(exc) or type(exc).__name__,
+                    )
+                    return await self._abandon_http_content_for_browser(url)
+                if (
+                    isinstance(exc, httpx.ConnectError)
+                    and self._can_upgrade_connect_error_to_l3(url)
+                ):
+                    return await self._upgrade_connect_error_to_l3(
+                        url, from_level="L2", exc=exc
+                    )
+                raise
 
         try:
             return await self._l1.fetch(url)
@@ -263,3 +308,15 @@ class AutoFetcher:
                     url,
                 )
                 return await self._fetch_l3(url)
+            except httpx.ConnectError as exc2:
+                if self._can_upgrade_connect_error_to_l3(url):
+                    return await self._upgrade_connect_error_to_l3(
+                        url, from_level="L2", exc=exc2
+                    )
+                raise
+        except httpx.ConnectError as exc:
+            if self._can_upgrade_connect_error_to_l3(url):
+                return await self._upgrade_connect_error_to_l3(
+                    url, from_level="L1", exc=exc
+                )
+            raise
