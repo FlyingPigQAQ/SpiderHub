@@ -22,7 +22,7 @@ SpiderHub 是基于 Python 的爬虫中枢（Crawler Hub）：统一管理多站
 | 语言 | Python 3.11+ |
 | 包管理 | `uv` + `pyproject.toml`（`src/` 布局） |
 | 轻量 HTTP | `httpx`（已引入；L1 默认路径；不要与 `aiohttp` 混用两套客户端栈） |
-| 浏览器抓取 | L3：`browser_engine`=`playwright` / `camoufox` / `patchright`（默认 playwright；有 CDP URL 时强制 Playwright）；`camoufox`/`patchright` 为 optional extra `stealth` |
+| 浏览器抓取 | L3：`browser_engine`=`playwright` / `camoufox` / `patchright`（默认 playwright；有 `browser_cdp_enabled` 或 `browser_cdp_url` 时强制 Playwright CDP connect；enabled 且无 URL 时 `ChromeCdpLauncher` 自动起本机 Chrome/Chromium/Edge）；`camoufox`/`patchright` 为 optional extra `stealth` |
 | TLS/JA3 兼容客户端 | `curl_cffi`（已引入；L2 路径，`AutoFetcher` 遇挑战可升维） |
 | 反爬检测与降级 | 自研 `challenge` 检测 + `AutoFetcher`（L1 httpx → L2 curl_cffi → L3 browser → 可选 L4 Solverr；均可关闭） |
 | 外部解锁适配器 | L4：FlareSolverr/Solverr 兼容 `/v1`（`allow_external_solver`，默认关闭） |
@@ -75,7 +75,7 @@ SpiderHub/
 
 1. **L1 `httpx`**：API / 弱防护页面；最快、最省资源。
 2. **L2 `curl_cffi`**：需要更接近浏览器的 TLS/HTTP2 指纹时使用。
-3. **L3 浏览器**：JS 挑战、强 Bot Management。引擎由 `browser_engine` 单选（`playwright` / `camoufox` / `patchright`，互不自动 fallback）；有 CDP URL 时强制本机 Chrome。
+3. **L3 浏览器**：JS 挑战、强 Bot Management。引擎由 `browser_engine` 单选（`playwright` / `camoufox` / `patchright`，互不自动 fallback）；有 `browser_cdp_enabled` 或 `browser_cdp_url` 时强制 Playwright CDP connect，enabled 且无 URL 时由 `ChromeCdpLauncher` 自动起本机浏览器。
 4. **L4 外部适配器（可选）**：FlareSolverr/Solverr 兼容 HTTP API；仅配置启用，默认关闭。可 `external_solver_skip_browser` 跳过 L3；成功后 sticky L4。
 
 ### 必须具备的能力

@@ -194,31 +194,22 @@ uv run spiderhub run missav_actress --dry-run --max-pages 1
 说明：
 
 - `browser_engine` 为配置单选；引擎间**不**自动互切。
-- 设置了 `SPIDERHUB_BROWSER_CDP_URL` 时**强制**走 Playwright CDP，忽略 `browser_engine`。
+- 设置了 `SPIDERHUB_BROWSER_CDP_ENABLED=true` 或非空 `SPIDERHUB_BROWSER_CDP_URL` 时**强制**走 Playwright CDP connect，忽略 `browser_engine`。
 - 会话默认写入 `.spiderhub/storage_state.json`（已 gitignore）。
 
 
 
 ### L3：本机 Chrome CDP（人工过 Cloudflare，推荐）
 
-**不要用 Playwright 直接弹窗勾选**（常被判定为自动化，勾选后会反复刷新）。推荐手动启动本机 Chrome 开远程调试，再让 SpiderHub 通过 CDP 接入；过验证后继续用同一标签抓内容（不切 headless，避免再次卡 CF）。
+**不要用 Playwright 直接弹窗勾选**（常被判定为自动化，勾选后会反复刷新）。推荐开启 CDP 自动启动，让 SpiderHub 探测并连接本机 Chrome / Chromium / Edge；过验证后继续用同一标签抓内容（不切 headless，避免再次卡 CF）。
+
+1. **推荐**：设置 `SPIDERHUB_BROWSER_CDP_ENABLED=true`（或 toml `browser_cdp_enabled = true`）后直接运行，无需手动 `mkdir` 或启动浏览器。
+2. **自动探测顺序**：Chrome → Chromium → Edge。若均未安装，错误会提示 `brew install --cask google-chrome`。
+3. **`keep_alive`**：默认 `false`，爬虫结束时关闭本次自动启动的浏览器；设为 `true` 时保留进程（便于复用 profile / 人工验证状态）。
+4. **高级**：若已有调试端口，可手动启动浏览器并设置 `SPIDERHUB_BROWSER_CDP_URL`（只连接、不自动启动）。
 
 ```bash
-# 终端 1：独立用户数据目录，避免打扰日常 Chrome
-mkdir -p .spiderhub/chrome-profile
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$PWD/.spiderhub/chrome-profile"
-
-mkdir -p .spiderhub/firefox-profile
-firefox --remote-debugging-port=9222 \
-        --profile "$PWD/.spiderhub/firefox-profile" \
-        --no-first-run \
-        --no-default-browser-check \
-        --disable-extensions
-
-# 终端 2：连接 CDP 并拉长挑战等待
-SPIDERHUB_BROWSER_CDP_URL=http://127.0.0.1:9222 \
+SPIDERHUB_BROWSER_CDP_ENABLED=true \
 SPIDERHUB_BROWSER_CHALLENGE_WAIT_SECONDS=180 \
 uv run spiderhub run missav_actress --dry-run --max-pages 1
 ```
@@ -272,7 +263,9 @@ browser_engine = "playwright"   # playwright | camoufox | patchright
 browser_challenge_wait_seconds = 15.0
 browser_headless = true
 browser_storage_state = ".spiderhub/storage_state.json"
+browser_cdp_enabled = false
 # browser_cdp_url = "http://127.0.0.1:9222"
+browser_cdp_keep_alive = false
 browser_user_data_dir = ".spiderhub/chrome-profile"
 allow_external_solver = false
 external_solver_url = "http://127.0.0.1:8191/v1"
