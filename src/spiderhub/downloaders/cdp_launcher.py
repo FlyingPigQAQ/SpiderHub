@@ -55,7 +55,7 @@ def _candidate_binaries() -> list[tuple[Path, str]]:
 def find_chromium_executable() -> Path | None:
     seen: set[Path] = set()
     for path, _label in _candidate_binaries():
-        resolved = path if path.is_absolute() else path
+        resolved = path.resolve()
         if resolved in seen:
             continue
         seen.add(resolved)
@@ -142,7 +142,12 @@ class ChromeCdpLauncher:
         if await self._probe_cdp(cdp_url):
             logger.info("reusing existing CDP endpoint url=%s", cdp_url)
             self._cdp_url = cdp_url
-            self._started_by_us = False
+            if not (
+                self._started_by_us
+                and self._proc is not None
+                and self._proc.poll() is None
+            ):
+                self._started_by_us = False
             return cdp_url
 
         if self._port_in_use(host, port):

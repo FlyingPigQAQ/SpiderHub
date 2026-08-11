@@ -143,6 +143,7 @@ async def test_ensure_ready_raises_when_no_browser(tmp_path: Path) -> None:
     )
     with (
         patch.object(launcher, "_probe_cdp", new=AsyncMock(return_value=False)),
+        patch.object(launcher, "_port_in_use", return_value=False),
         patch(
             "spiderhub.downloaders.cdp_launcher.find_chromium_executable",
             return_value=None,
