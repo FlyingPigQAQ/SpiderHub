@@ -32,6 +32,8 @@ class Settings:
     browser_headless: bool = True
     browser_storage_state: str = ".spiderhub/storage_state.json"
     browser_cdp_url: str = ""
+    browser_cdp_enabled: bool = False
+    browser_cdp_keep_alive: bool = False
     browser_user_data_dir: str = ".spiderhub/chrome-profile"
     allow_external_solver: bool = False
     external_solver_url: str = "http://127.0.0.1:8191/v1"
@@ -43,6 +45,13 @@ class Settings:
     feishu_receive_id_type: str = ""
     feishu_receive_id: str = ""
     feishu_notify_cooldown_seconds: float = 600.0
+
+
+def cdp_mode_active(settings: Settings) -> bool:
+    """True when CDP path should be used (enabled flag or explicit URL)."""
+    return bool(settings.browser_cdp_enabled) or bool(
+        settings.browser_cdp_url.strip()
+    )
 
 
 def _as_bool(value: object, default: bool) -> bool:
@@ -119,6 +128,8 @@ def load_settings(
             crawl.get("browser_storage_state", ".spiderhub/storage_state.json")
         ),
         "browser_cdp_url": str(crawl.get("browser_cdp_url", "")),
+        "browser_cdp_enabled": _as_bool(crawl.get("browser_cdp_enabled"), False),
+        "browser_cdp_keep_alive": _as_bool(crawl.get("browser_cdp_keep_alive"), False),
         "browser_user_data_dir": str(
             crawl.get("browser_user_data_dir", ".spiderhub/chrome-profile")
         ),
@@ -162,6 +173,8 @@ def load_settings(
         "browser_headless": "SPIDERHUB_BROWSER_HEADLESS",
         "browser_storage_state": "SPIDERHUB_BROWSER_STORAGE_STATE",
         "browser_cdp_url": "SPIDERHUB_BROWSER_CDP_URL",
+        "browser_cdp_enabled": "SPIDERHUB_BROWSER_CDP_ENABLED",
+        "browser_cdp_keep_alive": "SPIDERHUB_BROWSER_CDP_KEEP_ALIVE",
         "browser_user_data_dir": "SPIDERHUB_BROWSER_USER_DATA_DIR",
         "allow_external_solver": "SPIDERHUB_ALLOW_EXTERNAL_SOLVER",
         "external_solver_url": "SPIDERHUB_EXTERNAL_SOLVER_URL",
@@ -194,6 +207,8 @@ def load_settings(
                 "allow_fetcher_upgrade",
                 "allow_browser",
                 "browser_headless",
+                "browser_cdp_enabled",
+                "browser_cdp_keep_alive",
                 "allow_external_solver",
                 "external_solver_skip_browser",
             }:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from spiderhub.core.settings import load_settings
+from spiderhub.core.settings import Settings, cdp_mode_active, load_settings
 
 
 def test_defaults_and_env_override(tmp_path: Path) -> None:
@@ -117,3 +117,38 @@ def test_invalid_feishu_receive_id_type_raises(tmp_path: Path) -> None:
             env={"SPIDERHUB_FEISHU_RECEIVE_ID_TYPE": "email"},
             config_path=tmp_path / "missing.toml",
         )
+
+
+def test_browser_cdp_enabled_and_keep_alive_env(tmp_path: Path) -> None:
+    settings = load_settings(
+        env={
+            "SPIDERHUB_BROWSER_CDP_ENABLED": "true",
+            "SPIDERHUB_BROWSER_CDP_KEEP_ALIVE": "true",
+        },
+        config_path=tmp_path / "missing.toml",
+    )
+    assert settings.browser_cdp_enabled is True
+    assert settings.browser_cdp_keep_alive is True
+    assert settings.browser_cdp_url == ""
+    defaults = load_settings(env={}, config_path=tmp_path / "missing.toml")
+    assert defaults.browser_cdp_enabled is False
+    assert defaults.browser_cdp_keep_alive is False
+
+
+def test_browser_cdp_flags_from_toml(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "[crawl]\nbrowser_cdp_enabled = true\nbrowser_cdp_keep_alive = true\n",
+        encoding="utf-8",
+    )
+    settings = load_settings(env={}, config_path=path)
+    assert settings.browser_cdp_enabled is True
+    assert settings.browser_cdp_keep_alive is True
+
+
+def test_cdp_mode_active() -> None:
+    assert cdp_mode_active(Settings(browser_cdp_enabled=True)) is True
+    assert cdp_mode_active(
+        Settings(browser_cdp_url="http://127.0.0.1:9222")
+    ) is True
+    assert cdp_mode_active(Settings()) is False
