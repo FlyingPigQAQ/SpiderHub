@@ -148,7 +148,5 @@ def test_browser_cdp_flags_from_toml(tmp_path: Path) -> None:
 
 def test_cdp_mode_active() -> None:
     assert cdp_mode_active(Settings(browser_cdp_enabled=True)) is True
-    assert cdp_mode_active(
-        Settings(browser_cdp_url="http://127.0.0.1:9222")
-    ) is True
+    assert cdp_mode_active(Settings(browser_cdp_url="http://127.0.0.1:9222")) is True
     assert cdp_mode_active(Settings()) is False

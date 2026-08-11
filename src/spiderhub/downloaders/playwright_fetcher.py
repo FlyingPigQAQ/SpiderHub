@@ -75,7 +75,9 @@ class PlaywrightFetcher:
             if cdp_mode_active(self._settings):
                 self._cdp_launcher = ChromeCdpLauncher()
                 try:
-                    self._cdp_url = await self._cdp_launcher.ensure_ready(self._settings)
+                    self._cdp_url = await self._cdp_launcher.ensure_ready(
+                        self._settings
+                    )
                     await self._connect_cdp()
                 except BaseException:
                     await self._cleanup_failed_cdp_enter()

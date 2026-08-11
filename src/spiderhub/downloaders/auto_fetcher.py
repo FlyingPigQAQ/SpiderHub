@@ -267,10 +267,9 @@ class AutoFetcher:
                         str(exc) or type(exc).__name__,
                     )
                     return await self._abandon_http_content_for_browser(url)
-                if (
-                    isinstance(exc, httpx.ConnectError)
-                    and self._can_upgrade_connect_error_to_l3(url)
-                ):
+                if isinstance(
+                    exc, httpx.ConnectError
+                ) and self._can_upgrade_connect_error_to_l3(url):
                     return await self._upgrade_connect_error_to_l3(
                         url, from_level="L2", exc=exc
                     )

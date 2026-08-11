@@ -49,9 +49,7 @@ class Settings:
 
 def cdp_mode_active(settings: Settings) -> bool:
     """True when CDP path should be used (enabled flag or explicit URL)."""
-    return bool(settings.browser_cdp_enabled) or bool(
-        settings.browser_cdp_url.strip()
-    )
+    return bool(settings.browser_cdp_enabled) or bool(settings.browser_cdp_url.strip())
 
 
 def _as_bool(value: object, default: bool) -> bool:
