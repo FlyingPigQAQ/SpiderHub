@@ -14,7 +14,7 @@ from spiderhub.challenges.detect import (
     detect_challenge,
     is_challenge_title,
 )
-from spiderhub.core.settings import Settings
+from spiderhub.core.settings import Settings, cdp_mode_active
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.downloaders.browser_challenge import (
     challenge_wait_cleared,
@@ -22,6 +22,7 @@ from spiderhub.downloaders.browser_challenge import (
     is_recoverable_fetch_error,
     is_transient_page_error,
 )
+from spiderhub.downloaders.cdp_launcher import ChromeCdpLauncher
 from spiderhub.events import ChallengeNeedsHuman, publish
 
 logger = logging.getLogger(__name__)
@@ -56,12 +57,13 @@ class PlaywrightFetcher:
         self._context: Any | None = None
         self._storage_path = Path(settings.browser_storage_state)
         self._user_data_dir = Path(settings.browser_user_data_dir)
+        self._cdp_launcher: ChromeCdpLauncher | None = None
         self._cdp_url = settings.browser_cdp_url.strip()
         self._owns_browser = False
         self._owns_context = False
-        self._interactive = bool(self._cdp_url) or not settings.browser_headless
+        self._interactive = cdp_mode_active(settings) or not settings.browser_headless
         self._content_headless = False
-        self._keep_cdp = bool(self._cdp_url)
+        self._keep_cdp = cdp_mode_active(settings)
         self._reuse_page = False
         self._shared_page: Any | None = None
 
@@ -70,7 +72,9 @@ class PlaywrightFetcher:
             from playwright.async_api import async_playwright
 
             self._playwright = await async_playwright().start()
-            if self._cdp_url:
+            if cdp_mode_active(self._settings):
+                self._cdp_launcher = ChromeCdpLauncher()
+                self._cdp_url = await self._cdp_launcher.ensure_ready(self._settings)
                 await self._connect_cdp()
             elif not self._settings.browser_headless:
                 await self._launch_persistent()
@@ -175,6 +179,9 @@ class PlaywrightFetcher:
         if self._playwright is not None:
             await self._playwright.stop()
             self._playwright = None
+        if self._cdp_launcher is not None:
+            await self._cdp_launcher.shutdown()
+            self._cdp_launcher = None
 
     async def _persist_storage(self) -> None:
         if self._context is None or self._fetch_page_override is not None:
@@ -216,7 +223,7 @@ class PlaywrightFetcher:
             return
         if self._content_headless:
             return
-        if self._keep_cdp or self._cdp_url:
+        if self._keep_cdp:
             await self._persist_storage()
             logger.info(
                 "keep CDP browser for content crawl; reuse one tab path=%s",

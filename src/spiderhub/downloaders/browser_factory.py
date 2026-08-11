@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from spiderhub.core.settings import BROWSER_ENGINES, Settings
+from spiderhub.core.settings import BROWSER_ENGINES, Settings, cdp_mode_active
 from spiderhub.downloaders.browser_protocol import BrowserFetcher
 from spiderhub.downloaders.camoufox_fetcher import CamoufoxFetcher
 from spiderhub.downloaders.patchright_fetcher import PatchrightFetcher
@@ -13,7 +13,7 @@ def build_l3_fetcher(
     fetch_page: FetchPageFn | None = None,
 ) -> BrowserFetcher:
     """Build L3 browser fetcher. CDP always forces PlaywrightFetcher."""
-    if settings.browser_cdp_url.strip():
+    if cdp_mode_active(settings):
         return PlaywrightFetcher(settings, fetch_page=fetch_page)
 
     engine = settings.browser_engine.strip().lower() or "playwright"

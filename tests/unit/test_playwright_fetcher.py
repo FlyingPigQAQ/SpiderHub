@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
 from spiderhub.challenges.detect import ChallengeDetectedError
@@ -42,6 +45,61 @@ async def test_playwright_challenge_raises() -> None:
     async with PlaywrightFetcher(settings, fetch_page=fake_page) as fetcher:
         with pytest.raises(ChallengeDetectedError):
             await fetcher.fetch("https://missav.ws/cn/x")
+
+
+@pytest.mark.asyncio
+async def test_playwright_fetcher_cdp_enabled_uses_launcher_not_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        request_delay_seconds=0.0,
+        browser_cdp_enabled=True,
+        browser_challenge_wait_seconds=1.0,
+    )
+    ensure = AsyncMock(return_value="http://127.0.0.1:9222")
+    shutdown = AsyncMock()
+
+    class _FakeLauncher:
+        async def ensure_ready(self, actual_settings: Settings) -> str:
+            return await ensure(actual_settings)
+
+        async def shutdown(self) -> None:
+            await shutdown()
+
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.ChromeCdpLauncher",
+        _FakeLauncher,
+    )
+    launch_persistent = AsyncMock(
+        side_effect=AssertionError("must not launch persistent")
+    )
+    launch_ephemeral = AsyncMock(
+        side_effect=AssertionError("must not launch ephemeral")
+    )
+    connect = AsyncMock()
+    monkeypatch.setattr(PlaywrightFetcher, "_launch_persistent", launch_persistent)
+    monkeypatch.setattr(PlaywrightFetcher, "_launch_ephemeral", launch_ephemeral)
+    monkeypatch.setattr(PlaywrightFetcher, "_connect_cdp", connect)
+
+    class _FakePlaywright:
+        async def stop(self) -> None:
+            return None
+
+    async def fake_start() -> _FakePlaywright:
+        return _FakePlaywright()
+
+    monkeypatch.setattr(
+        "playwright.async_api.async_playwright",
+        lambda: SimpleNamespace(start=fake_start),
+    )
+
+    fetcher = PlaywrightFetcher(settings)
+    async with fetcher:
+        ensure.assert_awaited_once_with(settings)
+        connect.assert_awaited_once_with()
+    launch_persistent.assert_not_awaited()
+    launch_ephemeral.assert_not_awaited()
+    shutdown.assert_awaited_once_with()
 
 
 def test_challenge_wait_cleared_requires_title_and_clearance_or_clean_body() -> None:

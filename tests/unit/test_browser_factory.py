@@ -20,6 +20,14 @@ def test_cdp_forces_playwright_even_when_camoufox_configured() -> None:
     assert isinstance(fetcher, PlaywrightFetcher)
 
 
+def test_cdp_enabled_forces_playwright_without_url() -> None:
+    settings = Settings(
+        browser_engine="camoufox",
+        browser_cdp_enabled=True,
+    )
+    assert isinstance(build_l3_fetcher(settings), PlaywrightFetcher)
+
+
 def test_build_camoufox_engine() -> None:
     settings = Settings(browser_engine="camoufox")
     assert isinstance(build_l3_fetcher(settings), CamoufoxFetcher)
@@ -36,6 +44,10 @@ def test_build_playwright_default() -> None:
 
 
 def test_unknown_engine_raises() -> None:
-    fake = SimpleNamespace(browser_cdp_url="", browser_engine="nope")
+    fake = SimpleNamespace(
+        browser_cdp_url="",
+        browser_cdp_enabled=False,
+        browser_engine="nope",
+    )
     with pytest.raises(ValueError, match="browser_engine"):
         build_l3_fetcher(fake)  # type: ignore[arg-type]

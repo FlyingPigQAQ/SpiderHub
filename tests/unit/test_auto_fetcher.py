@@ -227,6 +227,18 @@ async def test_auto_fetcher_cdp_prefers_l2_after_browser() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_fetcher_cdp_enabled_prefers_l2_flag() -> None:
+    settings = Settings(
+        request_delay_seconds=0.0,
+        browser_cdp_enabled=True,
+        allow_fetcher_upgrade=True,
+        allow_browser=True,
+    )
+    async with AutoFetcher(settings) as fetcher:
+        assert fetcher._prefer_http_after_browser is True
+
+
+@pytest.mark.asyncio
 async def test_auto_fetcher_cdp_falls_back_sticky_l3_on_l2_challenge() -> None:
     calls = {"l2": 0, "l3": 0}
 

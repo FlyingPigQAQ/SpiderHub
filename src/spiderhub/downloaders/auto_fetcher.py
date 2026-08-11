@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from spiderhub.challenges.detect import ChallengeDetectedError
-from spiderhub.core.settings import Settings
+from spiderhub.core.settings import Settings, cdp_mode_active
 from spiderhub.downloaders.base import FetchedResponse
 from spiderhub.downloaders.browser_factory import build_l3_fetcher
 from spiderhub.downloaders.browser_protocol import BrowserFetcher
@@ -55,7 +55,7 @@ class AutoFetcher:
         self._l4_entered = False
         self._browser_session_ready = False
         self._solver_session_ready = False
-        self._prefer_http_after_browser = bool(settings.browser_cdp_url.strip())
+        self._prefer_http_after_browser = cdp_mode_active(settings)
         self._http_content_abandoned = False
 
     async def __aenter__(self) -> AutoFetcher:
