@@ -176,6 +176,48 @@ async def test_ensure_ready_port_busy_non_cdp_raises(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_second_ensure_ready_keeps_started_by_us_then_shutdown(
+    tmp_path: Path,
+) -> None:
+    """After we launch CDP, a reuse probe must not clear started_by_us."""
+    launcher = ChromeCdpLauncher()
+    profile = tmp_path / "profile"
+    chrome = tmp_path / "Google Chrome"
+    chrome.write_text("x")
+    settings = Settings(
+        browser_cdp_enabled=True,
+        browser_user_data_dir=str(profile),
+    )
+    proc = MagicMock()
+    proc.poll.return_value = None
+    probe = AsyncMock(side_effect=[False, True])
+    with (
+        patch.object(launcher, "_probe_cdp", new=probe),
+        patch.object(launcher, "_port_in_use", return_value=False),
+        patch(
+            "spiderhub.downloaders.cdp_launcher.find_chromium_executable",
+            return_value=chrome,
+        ),
+        patch(
+            "spiderhub.downloaders.cdp_launcher.subprocess.Popen",
+            return_value=proc,
+        ) as popen,
+        patch.object(launcher, "_wait_cdp_ready", new=AsyncMock(return_value=None)),
+    ):
+        await launcher.ensure_ready(settings)
+        assert launcher.started_by_us is True
+        popen.assert_called_once()
+
+        url = await launcher.ensure_ready(settings)
+    assert url == DEFAULT_CDP_URL
+    assert launcher.started_by_us is True
+    popen.assert_called_once()
+
+    await launcher.shutdown()
+    proc.terminate.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_shutdown_terminates_only_when_started_and_not_keep_alive() -> None:
     launcher = ChromeCdpLauncher()
     proc = MagicMock()
