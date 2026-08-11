@@ -102,6 +102,53 @@ async def test_playwright_fetcher_cdp_enabled_uses_launcher_not_launch(
     shutdown.assert_awaited_once_with()
 
 
+@pytest.mark.asyncio
+async def test_playwright_fetcher_cdp_connect_failure_shuts_down_launcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        request_delay_seconds=0.0,
+        browser_cdp_enabled=True,
+    )
+    shutdown = AsyncMock()
+
+    class _FakeLauncher:
+        async def ensure_ready(self, _settings: Settings) -> str:
+            return "http://127.0.0.1:9222"
+
+        async def shutdown(self) -> None:
+            await shutdown()
+
+    monkeypatch.setattr(
+        "spiderhub.downloaders.playwright_fetcher.ChromeCdpLauncher",
+        _FakeLauncher,
+    )
+    connect = AsyncMock(side_effect=RuntimeError("CDP connect failed"))
+    monkeypatch.setattr(PlaywrightFetcher, "_connect_cdp", connect)
+    stop = AsyncMock()
+
+    class _FakePlaywright:
+        async def stop(self) -> None:
+            await stop()
+
+    async def fake_start() -> _FakePlaywright:
+        return _FakePlaywright()
+
+    monkeypatch.setattr(
+        "playwright.async_api.async_playwright",
+        lambda: SimpleNamespace(start=fake_start),
+    )
+
+    fetcher = PlaywrightFetcher(settings)
+    with pytest.raises(RuntimeError, match="CDP connect failed"):
+        await fetcher.__aenter__()
+
+    shutdown.assert_awaited_once_with()
+    stop.assert_awaited_once_with()
+    assert fetcher._cdp_launcher is None
+    assert fetcher._playwright is None
+
+
 def test_challenge_wait_cleared_requires_title_and_clearance_or_clean_body() -> None:
     assert not challenge_wait_cleared(
         title="Just a moment...",

@@ -74,14 +74,46 @@ class PlaywrightFetcher:
             self._playwright = await async_playwright().start()
             if cdp_mode_active(self._settings):
                 self._cdp_launcher = ChromeCdpLauncher()
-                self._cdp_url = await self._cdp_launcher.ensure_ready(self._settings)
-                await self._connect_cdp()
+                try:
+                    self._cdp_url = await self._cdp_launcher.ensure_ready(self._settings)
+                    await self._connect_cdp()
+                except BaseException:
+                    await self._cleanup_failed_cdp_enter()
+                    raise
             elif not self._settings.browser_headless:
                 await self._launch_persistent()
             else:
                 await self._launch_ephemeral()
                 self._content_headless = True
         return self
+
+    async def _cleanup_failed_cdp_enter(self) -> None:
+        """Best-effort cleanup when CDP setup fails before context entry."""
+        try:
+            await self._close_browser_stack()
+        except Exception:  # noqa: BLE001 — preserve the original setup error
+            logger.exception("failed to close partial CDP browser stack")
+        self._shared_page = None
+        self._context = None
+        self._browser = None
+        self._owns_context = False
+        self._owns_browser = False
+
+        launcher = self._cdp_launcher
+        self._cdp_launcher = None
+        if launcher is not None:
+            try:
+                await launcher.shutdown()
+            except Exception:  # noqa: BLE001 — preserve the original setup error
+                logger.exception("failed to shut down CDP launcher after setup error")
+
+        playwright = self._playwright
+        self._playwright = None
+        if playwright is not None:
+            try:
+                await playwright.stop()
+            except Exception:  # noqa: BLE001 — preserve the original setup error
+                logger.exception("failed to stop Playwright after CDP setup error")
 
     async def _connect_cdp(self) -> None:
         assert self._playwright is not None
